@@ -1,0 +1,21 @@
+{
+  "name": "beast",
+  "version": "0.1.0",
+  "description": "An old hunter who welcomes and guides new hunters in the dream, what secrets does he hide?",
+  "devDependencies": {
+    "gulp": "^3.9.0",
+    "gulp-concat": "^2.6.0",
+    "gulp-minify": "^0.0.5"
+  },
+  "dependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git@github.yandex-team.ru:kovchiy/beast.git"
+  },
+  "keywords": [
+    "BEM",
+    "JS"
+  ],
+  "author": "kovchiy",
+  "license": "ISC"
+}

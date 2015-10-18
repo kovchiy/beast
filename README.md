@@ -47,6 +47,7 @@
     * [get](#ref-bemnode-get)
     * [getWithContext](#ref-bemnode-getwithcontext)
     * [has](#ref-bemnode-has)
+    * [afterDomInit](#ref-bemnode-afterDomInit)
     * [render](#ref-bemnode-render)
     * [renderHTML](#ref-bemnode-renderhtml)
   * [Beast.decl()](#ref-decl)
@@ -999,7 +1000,7 @@ Beast.decl('tabs__tab', {
 > Tab was closed
 ```
 
-Имплементирующий компонент наследует не только поведение, но и пользовательские методы.
+Имплементирующий компонент наследует не только поведение, но и пользовательские методы. Также имплементирующий откликается на имя имплементируемого.
 
 <a name="ref-bemnode-text"/>
 #### text () :string
@@ -1084,6 +1085,36 @@ Beast.decl('browser', {
 <a name="ref-bemnode-has"/>
 #### has (path:string...) :boolean
 Вариация метода `get()`. Проверяет наличие дочерних компонент по селектору.
+
+<a name="ref-bemnode-afterDomInit"/>
+#### afterDomInit (callback:function)
+Функция `callback` выполнится только после DOM-инициализации компонента. Полезно, когда элементу требуется взаимодействовать с инициализарованным родительским блоком (а элементы инициализируются вперед).
+
+```js
+.decl('tabs', {
+    onMod: {
+        state: {
+            uncommon: function () {...}
+        }
+    }
+})
+.decl('tabs__tab', {
+    mod: {
+        state:'release'
+    },
+    domInit: function () {
+        var uncommonState = this.mod('state') !== 'release'
+
+        this.parentBlock().afterDomInit(function () {
+            if (uncommonState) {
+                this.mod('state', 'uncommon')
+            }
+        })
+    }
+})
+```
+
+Обработчики onMod назначаются при создании DOM-узла компонента — на момент DOM-инициализации `tabs__tab` компонент `tab` еще не имел своего DOM-узла.
 
 <a name="ref-bemnode-render"/>
 #### render (domNode:DOMElement)
