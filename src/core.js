@@ -100,6 +100,15 @@ Beast.compileDeclarations = function () {
                 this.domAttr(decl.domAttr)
             })
         }
+        if (decl.onMod) {
+            expandHandlers.unshift(function () {
+                for (modName in decl.onMod) {
+                    for (modValue in decl.onMod[modName]) {
+                        this.onMod(modName, modValue, decl.onMod[modName][modValue])
+                    }
+                }
+            })
+        }
         if (decl.domInit) {
             initHandlers.unshift(decl.domInit)
         }
@@ -114,15 +123,6 @@ Beast.compileDeclarations = function () {
             initHandlers.unshift(function () {
                 for (events in decl.onWin) {
                     this.onWin(events, decl.onWin[events])
-                }
-            })
-        }
-        if (decl.onMod) {
-            initHandlers.unshift(function () {
-                for (modName in decl.onMod) {
-                    for (modValue in decl.onMod[modName]) {
-                        this.onMod(modName, modValue, decl.onMod[modName][modValue])
-                    }
                 }
             })
         }

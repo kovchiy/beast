@@ -100,6 +100,15 @@ Beast.compileDeclarations = function () {
                 this.domAttr(decl.domAttr)
             })
         }
+        if (decl.onMod) {
+            expandHandlers.unshift(function () {
+                for (modName in decl.onMod) {
+                    for (modValue in decl.onMod[modName]) {
+                        this.onMod(modName, modValue, decl.onMod[modName][modValue])
+                    }
+                }
+            })
+        }
         if (decl.domInit) {
             initHandlers.unshift(decl.domInit)
         }
@@ -114,15 +123,6 @@ Beast.compileDeclarations = function () {
             initHandlers.unshift(function () {
                 for (events in decl.onWin) {
                     this.onWin(events, decl.onWin[events])
-                }
-            })
-        }
-        if (decl.onMod) {
-            initHandlers.unshift(function () {
-                for (modName in decl.onMod) {
-                    for (modValue in decl.onMod[modName]) {
-                        this.onMod(modName, modValue, decl.onMod[modName][modValue])
-                    }
                 }
             })
         }
@@ -828,6 +828,9 @@ BemNode.prototype = {
      * Define modifiers and its default values
      */
     defineMod: function (defaults) {
+        if (this._implementedNode) {
+            this._implementedNode._extendProperty('_mod', defaults)
+        }
         return this._extendProperty('_mod', defaults)
     },
 
@@ -853,6 +856,9 @@ BemNode.prototype = {
             return this._mod[name]
         } else if (this._mod[name] !== value) {
             this._mod[name] = value
+            if (this._implementedNode) {
+                this._implementedNode._mod[name] = value
+            }
             if (this._domNode) {
                 this._setDomNodeClasses()
                 this._callModHandlers(name, value, data)
@@ -1130,7 +1136,8 @@ BemNode.prototype = {
     implementWith: function (bemNode) {
         this._setDomNodeClasses()
         bemNode._implementedNode = this
-        bemNode._mix = bemNode._mix.concat(this._domClasses)
+        bemNode._extendProperty('_mod', this._mod)
+        this._extendProperty('_mod', bemNode._mod)
         bemNode._defineUserMethods(this._name)
         this.replaceWith(bemNode)
     },
@@ -1274,6 +1281,11 @@ BemNode.prototype = {
 
         this._bemNodeIndex = Beast._bemNodes.length
         Beast._bemNodes.push(this)
+
+        for (modName in this._mod) {
+            this._callModHandlers(modName, this._mod[modName])
+        }
+
         this._domInit()
 
         return this
@@ -1412,7 +1424,7 @@ BemNode.prototype = {
      * @modValue string
      * @data     object Additional data for handler
      */
-    _callModHandlers: function (modName, modValue, data) {
+    _callModHandlers: function (modName, modValue, data, context) {
         var handlers
 
         if (this._modHandlers[modName]) {
@@ -1426,9 +1438,14 @@ BemNode.prototype = {
         }
 
         if (handlers) {
+            if (typeof context === 'undefined') context = this
             for (var i = 0, ii = handlers.length; i < ii; i++) {
-                handlers[i].call(this, data)
+                handlers[i].call(context, data)
             }
+        }
+
+        if (this._implementedNode) {
+            this._implementedNode._callModHandlers(modName, modValue, data, this)
         }
     },
 
@@ -1456,7 +1473,7 @@ BemNode.prototype = {
     /**
      * Sets DOM classes
      */
-    _setDomNodeClasses: function () {
+    _setDomNodeClasses: function (returnClassNameOnly) {
         var className = this._name
         var value
 
@@ -1472,14 +1489,22 @@ BemNode.prototype = {
             className += ' ' + this._name + '_' + key + '_' + value
         }
 
+        if (this._implementedNode) {
+            className += ' ' + this._implementedNode._setDomNodeClasses(true)
+        }
+
         for (var i = 0, ii = this._mix.length; i < ii; i++) {
             className += ' ' + this._mix[i]
         }
 
-        this._domClasses = className.split(' ')
+        if (returnClassNameOnly) {
+            return className
+        } else {
+            this._domClasses = className.split(' ')
 
-        if (this._domNode) {
-            this._domNode.className = className
+            if (this._domNode) {
+                this._domNode.className = className
+            }
         }
     },
 
