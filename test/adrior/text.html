@@ -1,0 +1,40 @@
+
+
+
+<body>
+    <div id="foo"></div>
+    <script>
+        var foo = document.getElementById('foo')
+        var text = 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'
+        var from
+        var to
+        var time1
+        var time2
+
+        from = new Date()
+        for (i = 0; i < 1000; i++) {
+            var div = document.createElement('div')
+            div.appendChild(
+                document.createTextNode(text)
+            )
+            foo.appendChild(div)
+        }
+        to = new Date()
+
+        time1 = to - from
+
+        foo.innerHTML = ''
+
+        from = new Date()
+        for (i = 0; i < 1000; i++) {
+            foo.innerHTML += '<div>'+text+'</div>'
+        }
+        to = new Date()
+
+        time2 = to - from
+
+        console.log(time1, time2); // 2, 1026 (Chrome browser)
+    </script>
+</body>
+
+

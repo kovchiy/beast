@@ -251,7 +251,11 @@ Beast.require = function (url) {
 Beast.appendBML = function (text) {
     var parsedText = Beast.parseBML(text)
     if (/^[\s\n]*</.test(text)) {
-        parsedText = parsedText + '.render(document.body);'
+        parsedText = parsedText + (
+            document.body
+                ? '.render(document.body);'
+                : '.render(document.documentElement);'
+        )
     }
 
     var script = document.createElement('script')
@@ -264,12 +268,18 @@ Beast.appendBML = function (text) {
  */
 Beast.processDOMLinks = function () {
     var links = document.getElementsByTagName('link')
+    var bmlLinks = []
+
     for (var i = 0, ii = links.length; i < ii; i++) {
         var link = links[i]
-
         if (link.type === 'bml' || link.rel === 'bml') {
             Beast.require(link.href)
+            bmlLinks.push(link)
         }
+    }
+
+    for (var i = 0, ii = bmlLinks.length; i < ii; i++) {
+        bmlLinks[i].parentNode.removeChild(bmlLinks[i])
     }
 }
 

@@ -424,7 +424,7 @@ BemNode.prototype = {
      */
     triggerWin: function (eventName, data) {
         if (this._domNode) {
-            eventName = (this._isBlock ? this._name : this._parentBlock._name) +':'+ eventName
+            eventName = this.parentBlock()._name + ':' + eventName
             window.dispatchEvent(
                 data
                     ? new CustomEvent(eventName, {detail:data})
@@ -623,10 +623,11 @@ BemNode.prototype = {
     get: function () {
         if (arguments.length === 0) return this._children
 
-        var collection = []
+        var collections = []
 
         for (var i = 0, ii = arguments.length; i < ii; i++) {
             var pathItems = arguments[i].split('/')
+            var collection
 
             for (var j = 0, jj = pathItems.length; j < jj; j++) {
                 var pathItem = pathItems[j]
@@ -647,9 +648,15 @@ BemNode.prototype = {
                     break
                 }
             }
+
+            if (ii === 1) {
+                collections = collection
+            } else {
+                collections = collections.concat(collection)
+            }
         }
 
-        return collection
+        return collections
     },
 
     /**

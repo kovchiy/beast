@@ -1,30 +1,27 @@
 Beast
 
+Beast.decl('admin-sidebar', {
+    expand: function() {
+        this.append(
+            <Menu stays="open">
+                <Menu State="closed"></Menu>
+            </Menu>
+        )
+    }
+})
+
 .decl('link', {
     noElems:true
 })
 
-.decl('abstract', {
-    mod: {
-        theme: 'classic'
-    },
-    on: {
-        click: function () {
-            this.mod('theme', 'modern')
-        }
-    }
-})
-
 .decl('showcase', {
-    inherits:'abstract',
     mod: {
         foo:true
     },
     expand: function () {
         this.append(
-            this.get('Link'),
-            this.get('item'),
-            <Foo Size="S" foo="123"/>,
+            this.get(),
+            <Foo Size="S" xfoo="123"/>,
             <wrap>
                 <baz>
                     <bar>$</bar>
@@ -39,7 +36,12 @@ Beast
     onMod: {
         state: {
             release: function () {
-                console.log('state', 'release')
+                // console.log('state', 'release')
+            }
+        },
+        foo: {
+            'true': function () {
+                console.log('foo true')
             }
         }
     }
@@ -76,8 +78,7 @@ Beast
             })
             .mod({
                 state:'release',
-                theme:'normal',
-                foo:true
+                theme:'normal'
             })
             .param({
                 url:'#foo',
@@ -89,8 +90,11 @@ Beast
 .decl('showcase__buy', {
     expand: function () {
         this.implementWith(
-                <Button>Купить</Button>
+                <Button Theme="foo">Купить</Button>
             )
+    },
+    domInit: function () {
+        this.mod('type', 'action')
     },
     on: {
         click: function () {
@@ -117,7 +121,6 @@ Beast
 .decl('showcase__bar', {
     domInit: function () {
         this.parentBlock().afterDomInit(function () {
-            console.log('after dom init')
             this.mod('state', 'release')
         })
     }

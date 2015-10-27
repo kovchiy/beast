@@ -3,25 +3,30 @@
 <script src="../../src/bml-parser.js" type="text/javascript"></script>
 <script src="../../src/bem-node.js" type="text/javascript"></script>
 
-<link type="bml" href="decls.js"/>
+<!-- <link type="bml" href="decls.js"/> -->
 
-<script type="xbml">
-    <Foo>a = {1}</Foo>
-</script>
-
-<script type="xbml">
-    <Foo>
-        a = {Math.random().toString()}
-        b = {(function() {return Math.random().toString()})()}
-    </Foo>
-</script>
-
+<style>
+    .showcase__b {
+        white-space:pre;
+    }
+</style>
 
 <script type="bml">
-    <Showcase Static Size="S">
-        <Link>
-            <foo>123</foo>
-        </Link>
+    <Menu Stays="open">
+        <item>
+            <Menu State="closed"></Menu>
+        </item>
+    </Menu>
+</script>
+
+<script type="xbml">
+    <Showcase
+        Static
+        Size="S">
+        <Link>\{1+1\}</Link>
+        <aaa>'AAA\u00A0</aaa>
+        <bbb>\\abc</bbb>
+        <ccc>&middot;</ccc>
         <item>
             <img>img/01.jpg</img>
             <title>Раз</title>
@@ -39,3 +44,4 @@
         </item>
     </Showcase>
 </script>
+

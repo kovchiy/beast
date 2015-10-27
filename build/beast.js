@@ -251,7 +251,11 @@ Beast.require = function (url) {
 Beast.appendBML = function (text) {
     var parsedText = Beast.parseBML(text)
     if (/^[\s\n]*</.test(text)) {
-        parsedText = parsedText + '.render(document.body);'
+        parsedText = parsedText + (
+            document.body
+                ? '.render(document.body);'
+                : '.render(document.documentElement);'
+        )
     }
 
     var script = document.createElement('script')
@@ -264,12 +268,18 @@ Beast.appendBML = function (text) {
  */
 Beast.processDOMLinks = function () {
     var links = document.getElementsByTagName('link')
+    var bmlLinks = []
+
     for (var i = 0, ii = links.length; i < ii; i++) {
         var link = links[i]
-
         if (link.type === 'bml' || link.rel === 'bml') {
             Beast.require(link.href)
+            bmlLinks.push(link)
         }
+    }
+
+    for (var i = 0, ii = bmlLinks.length; i < ii; i++) {
+        bmlLinks[i].parentNode.removeChild(bmlLinks[i])
     }
 }
 
@@ -317,11 +327,13 @@ var reComment      = /<!--[^]*-->/g
 function parseText (text) {
     var result = ''
     var openBraceNum = 0
+    var prevSymbol = ''
+    var symbol
 
     for (var i = 0, ii = text.length; i < ii; i++) {
-        var symbol = text[i]
+        symbol = text[i]
 
-        if (symbol === '{') {
+        if (symbol === '{' && prevSymbol !== '\\') {
             openBraceNum++
             if (openBraceNum === 1) {
                 if (result !== '') {
@@ -330,7 +342,7 @@ function parseText (text) {
             } else {
                 result += symbol
             }
-        } else if (symbol === '}') {
+        } else if (openBraceNum > 0 && symbol === '}') {
             openBraceNum--
             if (openBraceNum === 0) {
                 if (i < ii-1 && text[i+1] !== '{') {
@@ -341,11 +353,14 @@ function parseText (text) {
             }
         } else if (openBraceNum === 0) {
             if (i === 0) result += "'"
+            if (symbol === "'") result += '\\'
             result += symbol
             if (i === ii-1) result += "'"
         } else {
             result += symbol
         }
+
+        prevSymbol = symbol
     }
 
     return result
@@ -439,23 +454,31 @@ function parseBML (text) {
         if (matched[matched.length-2] === '/') {
             bmlEndsAt = matched.length
         } else {
-            var nameEndsAt = matched.indexOf(' ')
-            if (nameEndsAt < 0) {
-                nameEndsAt = matched.length-1
-            }
+            var nameEndsAt = matched.indexOf('\n')
+            if (nameEndsAt < 0) nameEndsAt = matched.indexOf(' ')
+            if (nameEndsAt < 0) nameEndsAt = matched.length-1
 
             var name = matched.substr(1, nameEndsAt-1)
-            var reOpenedNodesWithSameName = new RegExp('<'+ name +'(?:[\s\n][^>]*)*>', 'g')
+            var reOpenedNodesWithSameName = new RegExp('<'+ name +'(?:[ \n][^>]*)>', 'g')
             var closedNode = '</'+ name +'>'
             var textPortion = text.substr(bmlStartsAt+1)
             var closedNodesWithSameName = -1
             var nodesMatched
+            var textBeforeClosedNode
+            var textAfterClosedNode
+            var bmlEndsAtOffset = 0
 
             do {
-                bmlEndsAt = textPortion.search(closedNode)
-                textPortion = textPortion.substr(0, bmlEndsAt) + '*' + textPortion.substr(bmlEndsAt+1)
-                nodesMatched = textPortion.substr(0, bmlEndsAt).match(reOpenedNodesWithSameName)
+                bmlEndsAt = bmlEndsAtOffset === 0
+                    ? textPortion.search(closedNode)
+                    : textAfterClosedNode.search(closedNode) + bmlEndsAtOffset
+
+                textBeforeClosedNode = textPortion.substr(0, bmlEndsAt)
+                textAfterClosedNode = textPortion.substr(bmlEndsAt + 1)
+
+                nodesMatched = textBeforeClosedNode.match(reOpenedNodesWithSameName)
                 closedNodesWithSameName++
+                bmlEndsAtOffset += bmlEndsAt + 1
             } while (
                 nodesMatched !== null && nodesMatched.length > closedNodesWithSameName
             )
@@ -971,7 +994,7 @@ BemNode.prototype = {
      */
     triggerWin: function (eventName, data) {
         if (this._domNode) {
-            eventName = (this._isBlock ? this._name : this._parentBlock._name) +':'+ eventName
+            eventName = this.parentBlock()._name + ':' + eventName
             window.dispatchEvent(
                 data
                     ? new CustomEvent(eventName, {detail:data})
@@ -1170,10 +1193,11 @@ BemNode.prototype = {
     get: function () {
         if (arguments.length === 0) return this._children
 
-        var collection = []
+        var collections = []
 
         for (var i = 0, ii = arguments.length; i < ii; i++) {
             var pathItems = arguments[i].split('/')
+            var collection
 
             for (var j = 0, jj = pathItems.length; j < jj; j++) {
                 var pathItem = pathItems[j]
@@ -1194,9 +1218,15 @@ BemNode.prototype = {
                     break
                 }
             }
+
+            if (ii === 1) {
+                collections = collection
+            } else {
+                collections = collections.concat(collection)
+            }
         }
 
-        return collection
+        return collections
     },
 
     /**
