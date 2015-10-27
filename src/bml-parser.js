@@ -145,28 +145,30 @@ function parseBML (text) {
             if (nameEndsAt < 0) nameEndsAt = matched.length-1
 
             var name = matched.substr(1, nameEndsAt-1)
-            var reOpenedNodesWithSameName = new RegExp('<'+ name +'(?:[ \n][^>]*)>', 'g')
+            var reOpenedNodesWithSameName = new RegExp('<'+ name +'(?:|[ \n][^>]*)>', 'g')
             var closedNode = '</'+ name +'>'
             var textPortion = text.substr(bmlStartsAt+1)
-            var closedNodesWithSameName = -1
-            var nodesMatched
+            var closedNodes = -1
+            var openedNodes = 0
             var textBeforeClosedNode
             var textAfterClosedNode
-            var bmlEndsAtOffset = 0
+            var indexOffset = 0
 
             do {
-                bmlEndsAt = bmlEndsAtOffset === 0
+                bmlEndsAt = indexOffset === 0
                     ? textPortion.search(closedNode)
-                    : textAfterClosedNode.search(closedNode) + bmlEndsAtOffset
+                    : textAfterClosedNode.search(closedNode) + indexOffset
 
                 textBeforeClosedNode = textPortion.substr(0, bmlEndsAt)
                 textAfterClosedNode = textPortion.substr(bmlEndsAt + 1)
 
-                nodesMatched = textBeforeClosedNode.match(reOpenedNodesWithSameName)
-                closedNodesWithSameName++
-                bmlEndsAtOffset += bmlEndsAt + 1
+                openedNodes = textBeforeClosedNode.match(reOpenedNodesWithSameName)
+                openedNodes = openedNodes !== null ? openedNodes.length : 0
+
+                closedNodes++
+                indexOffset = bmlEndsAt + 1
             } while (
-                nodesMatched !== null && nodesMatched.length > closedNodesWithSameName
+                openedNodes > closedNodes
             )
 
             bmlEndsAt += 1 + closedNode.length
@@ -177,6 +179,8 @@ function parseBML (text) {
         var buffer = ''
         var splitBML = []
         var current
+
+        console.log(textPortion)
 
         for (var i = 0, ii = textPortion.length; i < ii; i++) {
             current = textPortion[i]
