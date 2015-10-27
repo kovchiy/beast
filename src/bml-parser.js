@@ -180,8 +180,6 @@ function parseBML (text) {
         var splitBML = []
         var current
 
-        console.log(textPortion)
-
         for (var i = 0, ii = textPortion.length; i < ii; i++) {
             current = textPortion[i]
 
