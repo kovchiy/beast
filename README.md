@@ -1,4 +1,4 @@
-![Beast](http://jing.yandex-team.ru/files/kovchiy/beast-111100000.jpg)
+![Beast](http://jing.yandex-team.ru/files/kovchiy/beast-red-cover-2dec.png)
 
 * [Beast](#beast)
 * [BML-разметка](#bmlmarkup)
@@ -66,6 +66,7 @@
   * [Прочие методы Beast](#ref-beast)
     * [node](#ref-beast-node)
     * [findNodes](#ref-beast-findnodes)
+    * [findNodeById](#ref-beast-findnodebyid)
     * [require](#ref-beast-require)
     * [parseBML](#ref-beast-parsebml)
 * [Рецепты](#recipes)
@@ -75,11 +76,12 @@
   * [Взаимодействие компонент](#recipes-interaction)
   * [Работа с CSS](#recipes-css)
   * [Сложное развертывание](#recipes-expand)
+* [Примеры проектов](#examples)
 
 <a name="beast"/>
 # Beast
 
-Инструмент создания интерфейса веб-приложений. Покрывает собой весь цикл разработки: от шаблонизации до взаимодействия компонент. Идейный наследник [БЭМ-методологии](//github.com/bem/bem-method) и инструментов [i-bem.js](https://ru.bem.info/technology/i-bem/v2/i-bem-js/), [bh](https://github.com/bem/bh), [React](http://facebook.github.io/react/); результат бесед с [Сергеем Бережным](https://events.yandex.ru/lib/people/34/), [Маратом Дулиным](https://events.yandex.ru/lib/people/143932/), [Антоном Шеином](http://antonshein.ru/noise/) и [Артемом Шитовым](http://www.artlebedev.ru/search/?text=%D0%B0%D1%80%D1%82%D0%B5%D0%BC%20%D1%88%D0%B8%D1%82%D0%BE%D0%B2).
+Инструмент создания интерфейса веб-приложений. Покрывает собой весь цикл разработки: от шаблонизации до взаимодействия компонент. Идейный наследник [БЭМ-методологии](//github.com/bem/bem-method) и инструментов [i-bem.js](https://ru.bem.info/technology/i-bem/v2/i-bem-js/), [bh](https://github.com/bem/bh), [React](http://facebook.github.io/react/); результат бесед с [Сергеем Бережным](https://events.yandex.ru/lib/people/34/), [Маратом Дулиным](https://events.yandex.ru/lib/people/143932/), [Антоном Шеиным](http://antonshein.ru/noise/) и [Артемом Шитовым](http://www.artlebedev.ru/search/?text=%D0%B0%D1%80%D1%82%D0%B5%D0%BC%20%D1%88%D0%B8%D1%82%D0%BE%D0%B2).
 
 Основная идея: интерфейс делится на компоненты, каждый из которых характеризуется уникальным БЭМ-селектором, входными данными, правилами их преобразования в представление и описанием поведения.
 
@@ -159,7 +161,7 @@
 </div>
 ```
 
-Несмотря на то, что HTML генерируется автоматически, логику генерации все равно следует понимать, чтобы писать CSS и селекторы для декларакций (о последних речь идет в следующей части). Итак, в HTML вся семантика из названий узлов ушла в их классы. Названия тоже частично поменялись: вместо `Browser` теперь `div class="Browser"`, а вместо `tabs` `div class ="browser__tabs"`. Сделано это для того, чтобы каждый блок или элемент с модификатором или без можно было описать одним CSS-селектором:
+Несмотря на то, что HTML генерируется автоматически, логику генерации все равно следует понимать, чтобы писать CSS и селекторы для декларакций (о последних речь идет в следующей части). Итак, в HTML вся семантика из названий узлов ушла в их классы. Названия тоже частично поменялись: вместо `Browser` теперь `div class="browser"`, а вместо `tabs` `div class ="browser__tabs"`. Сделано это для того, чтобы каждый блок или элемент с модификатором или без можно было описать одним CSS-селектором:
 
 ```css
 .webview {
@@ -223,7 +225,7 @@ Beast.node(
 )
 ```
 
-А раз конченый формат — javascript, ничто не мешает использовать его элементы в BML:
+А раз конечный формат — javascript, ничто не мешает использовать его элементы в BML:
 ```xml
 <Button id="{Math.random()}">Save</Button>
 ```
@@ -1035,6 +1037,7 @@ Beast.decl('tabs__tab', {
 Beast.decl('browser', {
     expand: function () {
         this.get() // все дочерние элементы
+        this.get('../Player')[0] // соседний компонент с именем Player
         this.get('head')[0] // компонент шапки
         this.get('head')[0].sayTrue() // true
         this.get('head/Tabs/tab') // массив табов
@@ -1383,6 +1386,11 @@ Beast.findNodes('Tabs__tab_state_active')
 ```
 
 Поиск происходит в цикле по плоскому списку компонент с предсохраненным списком соответствующих селекторов — метод настолько быстрый, насколько это возможно.
+
+<a name="ref-beast-findnodebyid"/>
+#### findNodeById (id:string)
+
+Найти компонент с идентификатором `id`.
 
 <a name="ref-beast-require"/>
 #### require (url:string)
@@ -1805,3 +1813,10 @@ Beast
 })
 
 ```
+
+<a name="examples"/>
+## Примеры проектов
+- https://github.yandex-team.ru/kovchiy/mediahome — проба пера: морда + поиск
+- https://github.yandex-team.ru/kovchiy/kinopoisk — адаптивный интерфейс (блок grid)
+- https://github.yandex-team.ru/kovchiy/searchapp — прекомпиляция Beast на сервере
+

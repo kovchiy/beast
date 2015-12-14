@@ -5,18 +5,20 @@
 
 <!-- <link type="bml" href="decls.js"/> -->
 
-<style>
-    .showcase__b {
-        white-space:pre;
-    }
-</style>
+<script type="bml">
+    Beast.decl('foo', {
+        expand: function () {
+            this.append(<Link>{this.get()}</Link>)
+        }
+    })
+</script>
 
 <script type="bml">
-    <Menu Stays="open">
-        <item>
-            <Menu State="closed"></Menu>
-        </item>
-    </Menu>
+    <Foo>
+      <bar>
+        <baz>c</baz>
+      </bar>
+    </Foo>
 </script>
 
 <script type="xbml">
@@ -24,7 +26,7 @@
         Static
         Size="S">
         <Link>\{1+1\}</Link>
-        <aaa>'AAA\u00A0</aaa>
+        <aaa id="uniq">'AAA\u00A0</aaa>
         <bbb>\\abc</bbb>
         <ccc>&middot;</ccc>
         <item>

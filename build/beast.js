@@ -1,5 +1,9 @@
 if (typeof window !== 'undefined') {
     window.Beast = {}
+    document.addEventListener('DOMContentLoaded', function () {
+        Beast.processDOMLinks()
+        Beast.processDOMScripts()
+    })
 } else {
     global.Beast = {}
 }
@@ -43,6 +47,10 @@ Beast._reservedDeclProperies = {
  * @decl     object
  */
 Beast.decl = function (selector, decl) {
+    if (typeof selector === 'object') {
+        for (key in selector) Beast.decl(key, selector[key])
+        return this
+    }
     if (decl.inherits && typeof decl.inherits === 'string') {
         decl.inherits = [decl.inherits]
     }
@@ -75,14 +83,19 @@ Beast.compileDeclarations = function () {
                 this.defineParam(decl.param)
             })
         }
-        if (decl.mod) {
-            expandHandlers.unshift(function () {
-                this.defineMod(decl.mod)
-            })
-        }
         if (decl.mix) {
             expandHandlers.unshift(function () {
                 this.mix.apply(this, decl.mix)
+            })
+        }
+        if (decl.inherits) {
+            expandHandlers.unshift(function () {
+                this.mix.apply(this, decl.inherits)
+            })
+        }
+        if (decl.mod) {
+            expandHandlers.unshift(function () {
+                this.defineMod(decl.mod)
             })
         }
         if (decl.tag) {
@@ -185,9 +198,9 @@ Beast.node = function (name, attr) {
 }
 
 /**
- * Finds BEM-nodes by selector in @arguments
- *
- * @return array Nodes found
+ * Finds BEM-nodes by selector
+ * @arguments array Selectors
+ * @return    array Nodes found
  */
 Beast.findNodes = function () {
     var nodesFound = []
@@ -206,35 +219,73 @@ Beast.findNodes = function () {
 }
 
 /**
+ * Finds BEM-node by id
+ * @id     string  ID
+ * @return BemNode Node found
+ */
+Beast.findNodeById = function (id) {
+    for (var i = 0, ii = Beast._bemNodes.length; i < ii; i++) {
+        var node = Beast._bemNodes[i]
+        if (node && node._id === id) {
+            return node
+        }
+    }
+}
+
+/**
+ * Checks if all link resources are loaded
+ */
+Beast.checkReadyState = function () {
+    var isReady = true
+    for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
+        var xhr = Beast._httpRequestQueue[i]
+        if (xhr.readyState !== 4 || xhr.status !== 200) {
+            isReady = false
+        }
+    }
+    if (this._cssLinksToLoad) {
+        isReady = false
+    }
+    if (isReady) {
+        for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
+            Beast.appendBML(
+                Beast._httpRequestQueue[i].responseText
+            )
+        }
+        Beast._httpRequestQueue = []
+        Beast.processDOMScripts()
+        Beast.readyState()
+    }
+}
+
+Beast._readyState = false
+Beast.readyState = function () {
+    Beast._readyState = true
+    for (var i = 0, ii = Beast._onReadyState.length; i < ii; i++) {
+        Beast._onReadyState[i]()
+    }
+}
+
+Beast._onReadyState = []
+Beast.onReadyState = function (callback) {
+    if (Beast._readyState) {
+        callback()
+    } else {
+        this._onReadyState.push(callback)
+    }
+}
+
+/**
  * Require declaration script
  *
  * @url string Path to script file
  */
 Beast.require = function (url) {
-    function checkQueueReady () {
-        var isReady = true
-        for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
-            var xhr = Beast._httpRequestQueue[i]
-            if (xhr.readyState !== 4 || xhr.status !== 200) {
-                isReady = false
-            }
-        }
-        if (isReady) {
-            for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
-                Beast.appendBML(
-                    Beast._httpRequestQueue[i].responseText
-                )
-            }
-            Beast._httpRequestQueue = []
-            Beast.processDOMScripts()
-        }
-    }
-
     var xhr = new XMLHttpRequest()
     xhr.open('GET', url)
     xhr.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
-            checkQueueReady()
+            Beast.checkReadyState()
         }
     }
     xhr.send()
@@ -253,8 +304,8 @@ Beast.appendBML = function (text) {
     if (/^[\s\n]*</.test(text)) {
         parsedText = parsedText + (
             document.body
-                ? '.render(document.body);'
-                : '.render(document.documentElement);'
+                ? '.render(document.body)'
+                : '.render(document.documentElement)'
         )
     }
 
@@ -270,11 +321,20 @@ Beast.processDOMLinks = function () {
     var links = document.getElementsByTagName('link')
     var bmlLinks = []
 
+    Beast._cssLinksToLoad = 0
+
     for (var i = 0, ii = links.length; i < ii; i++) {
         var link = links[i]
         if (link.type === 'bml' || link.rel === 'bml') {
             Beast.require(link.href)
             bmlLinks.push(link)
+        }
+        if (link.rel === 'stylesheet') {
+           Beast._cssLinksToLoad++
+           link.onload = function () {
+                Beast._cssLinksToLoad--
+                Beast.checkReadyState()
+            }
         }
     }
 
@@ -290,6 +350,7 @@ Beast.processDOMScripts = function () {
     if (Beast._httpRequestQueue.length !== 0) return
 
     var scripts = document.getElementsByTagName('script')
+
     for (var i = 0, ii = scripts.length; i < ii; i++) {
         var script = scripts[i]
         var text = script.text
@@ -300,23 +361,10 @@ Beast.processDOMScripts = function () {
     }
 }
 
-/**
- * On DOM loaded init Beast
- */
-if (typeof document !== 'undefined') {
-    document.addEventListener('DOMContentLoaded', function () {
-        Beast.processDOMLinks()
-        Beast.processDOMScripts()
-    })
-}
-
 })();
-
 ;(function () {
 
 var reStartBML     = /<[a-z][^>]+\/?>/i
-var reSplitNode    = /\s+(?=[^"]+(?:[=$]|$))|"\s+(?=[^=]*=)|"\s*(?=[^="]*$)/
-var reEmptyString  = /^[\s]*$/
 var reComment      = /<!--[^]*-->/g
 
 /**
@@ -376,50 +424,87 @@ function parseText (text) {
  */
 function parseNode (text, single, isRoot) {
     text = text.substr(1)
-    text = single
-        ? text.substr(0, text.length-2)
-        : text.substr(0, text.length-1)
+    text = text.substr(
+        0, text.length - (single ? 2 : 1)
+    )
 
-    var parts = text.split(reSplitNode)
-    var name = parts.shift()
+    var parsed = parseNodeNameAndAttr(text)
 
-    if (parts[parts.length-1] === '') parts.pop()
-
-    var js = "Beast.node('" + name + "', "
-
-    if (parts.length || isRoot) {
-        js += '{'
-        if (isRoot) {
-            js += "'context':this"
-            if (parts.length) js += ', '
-        }
-        while (parts.length) {
-            var attr = parts.shift().split('=')
-
-            if (attr.length === 1) {
-                js += "'" + attr[0] + "':true"
-            } else {
-                js += "'" + attr[0] + "':" + (
-                    attr[1] === '""'
-                        ? "''"
-                        : parseText(attr[1].substr(1, attr[1].length-1))
-                )
-            }
-
-            if (parts.length !== 0) {
-                js += ', '
-            }
-        }
-        js += '}'
-    } else {
-        js += 'null'
+    if (isRoot) {
+        parsed.attr += (parsed.attr === '' ? '' : ',') + "'context':this"
     }
 
-    if (single) {
-        js += ')'
+    if (parsed.attr === '') {
+        parsed.attr === 'null'
     }
 
-    return js
+    return "Beast.node('" + parsed.name + "',{" + parsed.attr + "}" + (single ? ')' : '')
+}
+
+/**
+ * Parses XML-substring with node name and attributes to json string
+ */
+function parseNodeNameAndAttr (text) {
+    var nodeName
+    var attr = ''
+    var buffer = ''
+    var openQuote = ''
+    var attrName
+    var escape = false
+
+    for (var i = 0, ii = text.length-1; i <= ii; i++) {
+        var s = text[i]
+
+        // last symbol always metters
+        if (i === ii && s !== ' ' && s !== '\n' && s !== "'" && s !== '"' && s !== '=') {
+            buffer += s
+        }
+
+        // node name
+        if ((s === ' ' || s === '\n' || i === ii) && typeof nodeName === 'undefined') {
+            nodeName = buffer
+            buffer = ''
+        }
+        // boolean attr
+        else if ((s === ' ' || s === '\n' || i === ii) && buffer !== '' && openQuote === '') {
+            attr += "'"+ buffer +"':true,"
+            buffer = ''
+        }
+        // attr name
+        else if (s === '=' && openQuote === '') {
+            attrName = buffer
+            buffer = ''
+        }
+        // attr value start
+        else if ((s === '"' || s === "'") && openQuote === '') {
+            openQuote = s
+        }
+        // attr value finish
+        else if (s === openQuote && !escape) {
+            attr += "'"+ attrName +"':"+ (buffer === '' ? 'false' : parseText(buffer)) + ","
+            openQuote = ''
+            buffer = ''
+        }
+        // when spaces metter
+        else if ((s === ' ' || s === '\n') && openQuote !== '') {
+            buffer += s
+        }
+        // read symbol
+        else if (s !== ' ' && s !== '\n') {
+            buffer += s
+        }
+
+        escape = s === '\\'
+    }
+
+    if (attr !== '') {
+        attr = attr.substring(0, attr.length-1)
+    }
+
+    return {
+        name: nodeName,
+        attr: attr
+    }
 }
 
 /**
@@ -524,7 +609,7 @@ function parseBML (text) {
         for (var i = 0, ii = splitBML.length; i < ii; i++) {
             var current = splitBML[i]
 
-            if (reEmptyString.test(current)) {
+            if (isEmptyString(current)) {
                 continue
             }
 
@@ -565,6 +650,13 @@ function parseBML (text) {
 
         text = text.substr(0, bmlStartsAt) + textPortionReplace + text.substr(bmlStartsAt + bmlEndsAt)
     } while (true)
+}
+
+function isEmptyString (str) {
+    for (var i = 0, ii = str.length; i < ii; i++) {
+        if (str[i] !== ' ') return false
+    }
+    return true
 }
 
 Beast.parseBML = parseBML
@@ -748,7 +840,7 @@ BemNode.prototype = {
      */
     noElems: function (value) {
         this._noElems = value
-        this._setParentBlockForChildren(this, this._parentNode, true)
+        this._setParentBlockForChildren(this, this._parentBlock._parentNode)
         return this
     },
 
@@ -767,7 +859,7 @@ BemNode.prototype = {
                 && bemNode !== this._parentBlock
                 && !this._forcedParentBlock) {
 
-                if (bemNode._parentBlock._noElems) {
+                if (bemNode._parentBlock && bemNode._parentBlock._noElems) {
                     return this.parentBlock(bemNode._parentNode, dontAffectChildren)
                 }
 
@@ -1014,8 +1106,10 @@ BemNode.prototype = {
      */
     index: function () {
         var siblings = this._parentNode._children
+        var dec = 0
         for (var i = 0, ii = siblings.length; i < ii; i++) {
-            if (siblings[i] === this) return i
+            if (typeof siblings[i] === 'string') dec++
+            if (siblings[i] === this) return i-dec
         }
     },
 
@@ -1078,7 +1172,9 @@ BemNode.prototype = {
         for (var i = 0, ii = arguments.length; i < ii; i++) {
             var child = arguments[i]
 
-            if (Array.isArray(child)) {
+            if (child === false) {
+                continue
+            } else if (Array.isArray(child)) {
                 this.append.apply(this, child)
                 continue
             } else if (child instanceof BemNode) {
@@ -1162,6 +1258,7 @@ BemNode.prototype = {
         this._setDomNodeClasses()
         bemNode._implementedNode = this
         bemNode._extendProperty('_mod', this._mod)
+        bemNode._extendProperty('_param', this._param)
         this._extendProperty('_mod', bemNode._mod)
         bemNode._defineUserMethods(this._name)
         this.replaceWith(bemNode)
@@ -1185,9 +1282,10 @@ BemNode.prototype = {
 
     /**
      * Finds bemNodes and attributes by paths:
-     * - nodeName1
-     * - nodeName1/nodeName2
-     * - nodeName1/
+     * - nodeName1 (children)
+     * - nodeName1/ (all children of children)
+     * - nodeName1/nodeName2 (children of children)
+     * - ../nodeName1 (children of parent)
      *
      * @path   string Multiple argument: path to node or attribute
      * @return array  bemNodes collection
@@ -1235,10 +1333,10 @@ BemNode.prototype = {
      * Variation of get() method with current block forcing
      */
     getWithContext: function () {
-        var children = this.get.apply(this, argumnets)
+        var children = this.get.apply(this, arguments)
         for (var i = 0, ii = children.length; i < ii; i++) {
             if (children[i] instanceof BemNode) {
-                children[i].parenBlock(this._parentBlock)
+                children[i]._forcedParentBlock = true
             }
         }
         return children
@@ -1314,6 +1412,10 @@ BemNode.prototype = {
         this._bemNodeIndex = Beast._bemNodes.length
         Beast._bemNodes.push(this)
 
+        if (this._tag === 'body') {
+            document.documentElement.replaceChild(this._domNode, document.body)
+        }
+
         for (modName in this._mod) {
             this._callModHandlers(modName, this._mod[modName])
         }
@@ -1346,15 +1448,11 @@ BemNode.prototype = {
      * @bemNode     object current node with children
      * @parentBlock object paren block reference
      */
-    _setParentBlockForChildren: function (bemNode, parentBlock, forced) {
+    _setParentBlockForChildren: function (bemNode, parentBlock) {
         for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
             var child = bemNode._children[i]
             if (child instanceof BemNode && child._isElem) {
-                if (!child._parentBlock || forced) {
-                    child.parentBlock(parentBlock)
-                } else {
-                    this._setParentBlockForChildren(child, parentBlock)
-                }
+                child.parentBlock(parentBlock)
             }
         }
     },
@@ -1366,6 +1464,10 @@ BemNode.prototype = {
      * @return array  Filtered children
      */
     _filterChildNodes: function (name) {
+        if (name === '..') {
+            return [this._parentNode]
+        }
+
         var collection = []
         for (var i = 0, ii = this._children.length; i < ii; i++) {
             var child = this._children[i]
@@ -1462,10 +1564,17 @@ BemNode.prototype = {
         if (this._modHandlers[modName]) {
             if (this._modHandlers[modName][modValue]) {
                 handlers = this._modHandlers[modName][modValue]
-            } else if (value === false && this._modHandlers[name]['']) {
+            } else if (modValue === false && this._modHandlers[modName]['']) {
                 handlers = this._modHandlers[modName]['']
-            } else if (value === '' && this._modHandlers[name][false]) {
+            } else if (modValue === '' && this._modHandlers[modName][false]) {
                 handlers = this._modHandlers[modName][false]
+            }
+            if (this._modHandlers[modName]['*']) {
+                if (handlers) {
+                    handlers = handlers.concat(this._modHandlers[modName]['*'])
+                } else {
+                    handlers = this._modHandlers[modName]['*']
+                }
             }
         }
 
@@ -1508,17 +1617,21 @@ BemNode.prototype = {
     _setDomNodeClasses: function (returnClassNameOnly) {
         var className = this._name
         var value
+        var tail
 
         for (key in this._mod) {
             value = this._mod[key]
-            if (value === '' || value === false) {
-                continue
+            if (value === '' || value === false) continue
+
+            tail = value === true
+                ? '_' + key
+                : '_' + key + '_' + value
+
+            className += ' ' + this._name + tail
+
+            for (var i = 0, ii = this._mix.length; i < ii; i++) {
+                className += ' ' + this._mix[i] + tail
             }
-            if (value === true) {
-                className += ' ' + this._name + '_' + key
-                continue
-            }
-            className += ' ' + this._name + '_' + key + '_' + value
         }
 
         if (this._implementedNode) {

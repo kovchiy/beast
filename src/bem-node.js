@@ -176,7 +176,7 @@ BemNode.prototype = {
      */
     noElems: function (value) {
         this._noElems = value
-        this._setParentBlockForChildren(this, this._parentNode, true)
+        this._setParentBlockForChildren(this, this._parentBlock._parentNode)
         return this
     },
 
@@ -195,7 +195,7 @@ BemNode.prototype = {
                 && bemNode !== this._parentBlock
                 && !this._forcedParentBlock) {
 
-                if (bemNode._parentBlock._noElems) {
+                if (bemNode._parentBlock && bemNode._parentBlock._noElems) {
                     return this.parentBlock(bemNode._parentNode, dontAffectChildren)
                 }
 
@@ -442,8 +442,10 @@ BemNode.prototype = {
      */
     index: function () {
         var siblings = this._parentNode._children
+        var dec = 0
         for (var i = 0, ii = siblings.length; i < ii; i++) {
-            if (siblings[i] === this) return i
+            if (typeof siblings[i] === 'string') dec++
+            if (siblings[i] === this) return i-dec
         }
     },
 
@@ -506,7 +508,9 @@ BemNode.prototype = {
         for (var i = 0, ii = arguments.length; i < ii; i++) {
             var child = arguments[i]
 
-            if (Array.isArray(child)) {
+            if (child === false) {
+                continue
+            } else if (Array.isArray(child)) {
                 this.append.apply(this, child)
                 continue
             } else if (child instanceof BemNode) {
@@ -590,6 +594,7 @@ BemNode.prototype = {
         this._setDomNodeClasses()
         bemNode._implementedNode = this
         bemNode._extendProperty('_mod', this._mod)
+        bemNode._extendProperty('_param', this._param)
         this._extendProperty('_mod', bemNode._mod)
         bemNode._defineUserMethods(this._name)
         this.replaceWith(bemNode)
@@ -613,9 +618,10 @@ BemNode.prototype = {
 
     /**
      * Finds bemNodes and attributes by paths:
-     * - nodeName1
-     * - nodeName1/nodeName2
-     * - nodeName1/
+     * - nodeName1 (children)
+     * - nodeName1/ (all children of children)
+     * - nodeName1/nodeName2 (children of children)
+     * - ../nodeName1 (children of parent)
      *
      * @path   string Multiple argument: path to node or attribute
      * @return array  bemNodes collection
@@ -663,10 +669,10 @@ BemNode.prototype = {
      * Variation of get() method with current block forcing
      */
     getWithContext: function () {
-        var children = this.get.apply(this, argumnets)
+        var children = this.get.apply(this, arguments)
         for (var i = 0, ii = children.length; i < ii; i++) {
             if (children[i] instanceof BemNode) {
-                children[i].parenBlock(this._parentBlock)
+                children[i]._forcedParentBlock = true
             }
         }
         return children
@@ -742,6 +748,10 @@ BemNode.prototype = {
         this._bemNodeIndex = Beast._bemNodes.length
         Beast._bemNodes.push(this)
 
+        if (this._tag === 'body') {
+            document.documentElement.replaceChild(this._domNode, document.body)
+        }
+
         for (modName in this._mod) {
             this._callModHandlers(modName, this._mod[modName])
         }
@@ -774,15 +784,11 @@ BemNode.prototype = {
      * @bemNode     object current node with children
      * @parentBlock object paren block reference
      */
-    _setParentBlockForChildren: function (bemNode, parentBlock, forced) {
+    _setParentBlockForChildren: function (bemNode, parentBlock) {
         for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
             var child = bemNode._children[i]
             if (child instanceof BemNode && child._isElem) {
-                if (!child._parentBlock || forced) {
-                    child.parentBlock(parentBlock)
-                } else {
-                    this._setParentBlockForChildren(child, parentBlock)
-                }
+                child.parentBlock(parentBlock)
             }
         }
     },
@@ -794,6 +800,10 @@ BemNode.prototype = {
      * @return array  Filtered children
      */
     _filterChildNodes: function (name) {
+        if (name === '..') {
+            return [this._parentNode]
+        }
+
         var collection = []
         for (var i = 0, ii = this._children.length; i < ii; i++) {
             var child = this._children[i]
@@ -890,10 +900,17 @@ BemNode.prototype = {
         if (this._modHandlers[modName]) {
             if (this._modHandlers[modName][modValue]) {
                 handlers = this._modHandlers[modName][modValue]
-            } else if (value === false && this._modHandlers[name]['']) {
+            } else if (modValue === false && this._modHandlers[modName]['']) {
                 handlers = this._modHandlers[modName]['']
-            } else if (value === '' && this._modHandlers[name][false]) {
+            } else if (modValue === '' && this._modHandlers[modName][false]) {
                 handlers = this._modHandlers[modName][false]
+            }
+            if (this._modHandlers[modName]['*']) {
+                if (handlers) {
+                    handlers = handlers.concat(this._modHandlers[modName]['*'])
+                } else {
+                    handlers = this._modHandlers[modName]['*']
+                }
             }
         }
 
@@ -936,17 +953,21 @@ BemNode.prototype = {
     _setDomNodeClasses: function (returnClassNameOnly) {
         var className = this._name
         var value
+        var tail
 
         for (key in this._mod) {
             value = this._mod[key]
-            if (value === '' || value === false) {
-                continue
+            if (value === '' || value === false) continue
+
+            tail = value === true
+                ? '_' + key
+                : '_' + key + '_' + value
+
+            className += ' ' + this._name + tail
+
+            for (var i = 0, ii = this._mix.length; i < ii; i++) {
+                className += ' ' + this._mix[i] + tail
             }
-            if (value === true) {
-                className += ' ' + this._name + '_' + key
-                continue
-            }
-            className += ' ' + this._name + '_' + key + '_' + value
         }
 
         if (this._implementedNode) {

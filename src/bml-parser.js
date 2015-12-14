@@ -1,8 +1,6 @@
 ;(function () {
 
 var reStartBML     = /<[a-z][^>]+\/?>/i
-var reSplitNode    = /\s+(?=[^"]+(?:[=$]|$))|"\s+(?=[^=]*=)|"\s*(?=[^="]*$)/
-var reEmptyString  = /^[\s]*$/
 var reComment      = /<!--[^]*-->/g
 
 /**
@@ -62,50 +60,87 @@ function parseText (text) {
  */
 function parseNode (text, single, isRoot) {
     text = text.substr(1)
-    text = single
-        ? text.substr(0, text.length-2)
-        : text.substr(0, text.length-1)
+    text = text.substr(
+        0, text.length - (single ? 2 : 1)
+    )
 
-    var parts = text.split(reSplitNode)
-    var name = parts.shift()
+    var parsed = parseNodeNameAndAttr(text)
 
-    if (parts[parts.length-1] === '') parts.pop()
-
-    var js = "Beast.node('" + name + "', "
-
-    if (parts.length || isRoot) {
-        js += '{'
-        if (isRoot) {
-            js += "'context':this"
-            if (parts.length) js += ', '
-        }
-        while (parts.length) {
-            var attr = parts.shift().split('=')
-
-            if (attr.length === 1) {
-                js += "'" + attr[0] + "':true"
-            } else {
-                js += "'" + attr[0] + "':" + (
-                    attr[1] === '""'
-                        ? "''"
-                        : parseText(attr[1].substr(1, attr[1].length-1))
-                )
-            }
-
-            if (parts.length !== 0) {
-                js += ', '
-            }
-        }
-        js += '}'
-    } else {
-        js += 'null'
+    if (isRoot) {
+        parsed.attr += (parsed.attr === '' ? '' : ',') + "'context':this"
     }
 
-    if (single) {
-        js += ')'
+    if (parsed.attr === '') {
+        parsed.attr === 'null'
     }
 
-    return js
+    return "Beast.node('" + parsed.name + "',{" + parsed.attr + "}" + (single ? ')' : '')
+}
+
+/**
+ * Parses XML-substring with node name and attributes to json string
+ */
+function parseNodeNameAndAttr (text) {
+    var nodeName
+    var attr = ''
+    var buffer = ''
+    var openQuote = ''
+    var attrName
+    var escape = false
+
+    for (var i = 0, ii = text.length-1; i <= ii; i++) {
+        var s = text[i]
+
+        // last symbol always metters
+        if (i === ii && s !== ' ' && s !== '\n' && s !== "'" && s !== '"' && s !== '=') {
+            buffer += s
+        }
+
+        // node name
+        if ((s === ' ' || s === '\n' || i === ii) && typeof nodeName === 'undefined') {
+            nodeName = buffer
+            buffer = ''
+        }
+        // boolean attr
+        else if ((s === ' ' || s === '\n' || i === ii) && buffer !== '' && openQuote === '') {
+            attr += "'"+ buffer +"':true,"
+            buffer = ''
+        }
+        // attr name
+        else if (s === '=' && openQuote === '') {
+            attrName = buffer
+            buffer = ''
+        }
+        // attr value start
+        else if ((s === '"' || s === "'") && openQuote === '') {
+            openQuote = s
+        }
+        // attr value finish
+        else if (s === openQuote && !escape) {
+            attr += "'"+ attrName +"':"+ (buffer === '' ? 'false' : parseText(buffer)) + ","
+            openQuote = ''
+            buffer = ''
+        }
+        // when spaces metter
+        else if ((s === ' ' || s === '\n') && openQuote !== '') {
+            buffer += s
+        }
+        // read symbol
+        else if (s !== ' ' && s !== '\n') {
+            buffer += s
+        }
+
+        escape = s === '\\'
+    }
+
+    if (attr !== '') {
+        attr = attr.substring(0, attr.length-1)
+    }
+
+    return {
+        name: nodeName,
+        attr: attr
+    }
 }
 
 /**
@@ -210,7 +245,7 @@ function parseBML (text) {
         for (var i = 0, ii = splitBML.length; i < ii; i++) {
             var current = splitBML[i]
 
-            if (reEmptyString.test(current)) {
+            if (isEmptyString(current)) {
                 continue
             }
 
@@ -251,6 +286,13 @@ function parseBML (text) {
 
         text = text.substr(0, bmlStartsAt) + textPortionReplace + text.substr(bmlStartsAt + bmlEndsAt)
     } while (true)
+}
+
+function isEmptyString (str) {
+    for (var i = 0, ii = str.length; i < ii; i++) {
+        if (str[i] !== ' ') return false
+    }
+    return true
 }
 
 Beast.parseBML = parseBML

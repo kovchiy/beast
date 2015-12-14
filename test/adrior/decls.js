@@ -20,8 +20,9 @@ Beast.decl('admin-sidebar', {
     },
     expand: function () {
         this.append(
-            this.get(),
-            <Foo Size="S" xfoo="123"/>,
+            <Foo Size="S" xfoo="123">{
+                this.getWithContext()
+            }</Foo>,
             <wrap>
                 <baz>
                     <bar>$</bar>
@@ -32,6 +33,7 @@ Beast.decl('admin-sidebar', {
     domInit: function () {
         this.css('display', 'block')
         this.triggerWin('foo')
+        console.log(Beast.findNodeById('uniq'))
     },
     onMod: {
         state: {
