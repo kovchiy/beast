@@ -1,4 +1,4 @@
-![Beast](//github.com/kovchiy/beast/blob/master/images/cover.png)
+![Beast](https://github.com/kovchiy/beast/blob/master/images/cover.png)
 
 [BEM-methodology]: https://en.bem.info/method/
 [i-bem.js]: https://en.bem.info/technology/i-bem/v2/i-bem-js/
