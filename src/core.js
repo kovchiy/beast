@@ -1,8 +1,7 @@
 if (typeof window !== 'undefined') {
     window.Beast = {}
     document.addEventListener('DOMContentLoaded', function () {
-        Beast.processDOMLinks()
-        Beast.processDOMScripts()
+        Beast.init()
     })
 } else {
     global.Beast = {}
@@ -13,6 +12,9 @@ if (typeof window !== 'undefined') {
 Beast._decl = {}                // declarations from Bease.decl()
 Beast._declFinished = false     // flag turns true after the first Beast.node() call
 Beast._httpRequestQueue = []    // queue of required bml-files with link tag
+Beast._cssLinksToLoad = 0       // num of <link rel="stylesheet"> in the <head>
+Beast._isReady = false          // if all styles and scripts are loaded
+Beast._onReadyCallbacks = []    // functions to call when sources are ready
 Beast._bemNodes = []            // ever initialized bem nodes
 Beast._reservedDeclProperies = {
     inherits:1,
@@ -25,8 +27,13 @@ Beast._reservedDeclProperies = {
     on:1,
     onWin:1,
     onMod:1,
+    onRemove:1,
     tag:1,
-    noElems:1
+    noElems:1,
+    inheritedDecls:1,
+    userMethods:1,
+    commonExpand:1,
+    commonDomInit:1
 }
 
 /**
@@ -73,8 +80,43 @@ Beast.decl = function (selector, decl) {
 /**
  * Compiles declaration fileds to methods, makes inheritances
  */
-Beast.compileDeclarations = function () {
-    function collectDeclHandlers (expandHandlers, initHandlers, userMethods, decl) {
+Beast._compileDeclarations = function () {
+    function extend (obj, extObj) {
+        for (var key in extObj) {
+            if (typeof obj[key] === 'undefined') {
+                obj[key] = extObj[key]
+            } else if (typeof extObj[key] === 'object') {
+                extend(obj[key], extObj[key])
+            }
+        }
+    }
+
+    function compileCommonHandler (commonHandlerName, handlers, decl) {
+        if (handlers.length === 0) return
+
+        decl[commonHandlerName] = function () {
+            for (var i = 0, ii = handlers.length; i < ii; i++) {
+                handlers[i].call(this)
+            }
+        }
+    }
+
+    for (var selector in Beast._decl) (function (decl) {
+
+        // Extend decl with inherited rules
+        if (decl.inherits) {
+            for (var i = decl.inherits.length-1; i >= 0; i--) {
+                var inheritedDecl = Beast._decl[decl.inherits[i]]
+                if (inheritedDecl) {
+                    extend(decl, inheritedDecl)
+                    if (!decl.inheritedDecls) decl.inheritedDecls = []
+                    decl.inheritedDecls.push(inheritedDecl)
+                }
+            }
+        }
+
+        // Compile expand rules to methods array
+        var expandHandlers = []
         if (decl.expand) {
             expandHandlers.unshift(decl.expand)
         }
@@ -122,57 +164,40 @@ Beast.compileDeclarations = function () {
                 }
             })
         }
+
+        // Compile domInit rules to methods array
+        var domInitHandlers = []
         if (decl.domInit) {
-            initHandlers.unshift(decl.domInit)
+            domInitHandlers.unshift(decl.domInit)
         }
         if (decl.on) {
-            initHandlers.unshift(function () {
+            domInitHandlers.unshift(function () {
                 for (events in decl.on) {
                     this.on(events, decl.on[events])
                 }
             })
         }
         if (decl.onWin) {
-            initHandlers.unshift(function () {
+            domInitHandlers.unshift(function () {
                 for (events in decl.onWin) {
                     this.onWin(events, decl.onWin[events])
                 }
             })
         }
-        for (key in decl) {
-            if (!Beast._reservedDeclProperies[key] && !userMethods[key]) {
-                userMethods[key] = decl[key]
+
+        // Compile common handlers
+        compileCommonHandler('commonExpand', expandHandlers, decl)
+        compileCommonHandler('commonDomInit', domInitHandlers, decl)
+
+        // Extract user methods
+        decl.userMethods = {}
+        for (var key in decl) {
+            if (Beast._reservedDeclProperies[key] !== 1) {
+                decl.userMethods[key] = decl[key]
             }
         }
-        if (decl.inherits) {
-            for (var i = decl.inherits.length-1, ii = 0; i >= ii; i--) {
-                var inheritedDecl = Beast._decl[decl.inherits[i]]
-                if (inheritedDecl) {
-                    collectDeclHandlers(expandHandlers, initHandlers, userMethods, inheritedDecl)
-                }
-            }
-        }
-    }
 
-    function defineCommonHandler (commonHandlerName, handlers, selector) {
-        Beast._decl[selector][commonHandlerName] = function () {
-            for (var i = 0, ii = handlers.length; i < ii; i++) {
-                handlers[i].call(this)
-            }
-        }
-    }
-
-    for (selector in Beast._decl) {
-        var decl = Beast._decl[selector]
-        var expandHandlers = []
-        var initHandlers = []
-        var userMethods = {}
-
-        collectDeclHandlers(expandHandlers, initHandlers, userMethods, decl)
-        defineCommonHandler('expand', expandHandlers, selector)
-        defineCommonHandler('domInit', initHandlers, selector)
-        decl._userMethods = userMethods
-    }
+    })(Beast._decl[selector])
 }
 
 /**
@@ -187,7 +212,7 @@ Beast.node = function (name, attr) {
     // No more Beast.decl() after the first Beast.node() call
     if (!Beast._declFinished) {
         Beast._declFinished = true
-        Beast.compileDeclarations()
+        Beast._compileDeclarations()
     }
 
     return new Beast.BemNode(
@@ -233,45 +258,49 @@ Beast.findNodeById = function (id) {
 }
 
 /**
- * Checks if all link resources are loaded
+ * Checks if all <link> are loaded
  */
-Beast.checkReadyState = function () {
+Beast._checkIfReady = function () {
+    if (Beast._isReady) return
+
     var isReady = true
+
     for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
         var xhr = Beast._httpRequestQueue[i]
         if (xhr.readyState !== 4 || xhr.status !== 200) {
             isReady = false
         }
     }
-    if (this._cssLinksToLoad) {
+    if (document.styleSheets.length < Beast._cssLinksToLoad) {
         isReady = false
     }
+
     if (isReady) {
         for (var i = 0, ii = Beast._httpRequestQueue.length; i < ii; i++) {
-            Beast.appendBML(
+            Beast.evalBml(
                 Beast._httpRequestQueue[i].responseText
             )
         }
         Beast._httpRequestQueue = []
-        Beast.processDOMScripts()
-        Beast.readyState()
+        Beast._processBmlScripts()
+
+        Beast._isReady = true
+        for (var i = 0, ii = Beast._onReadyCallbacks.length; i < ii; i++) {
+            Beast._onReadyCallbacks[i]()
+        }
     }
 }
 
-Beast._readyState = false
-Beast.readyState = function () {
-    Beast._readyState = true
-    for (var i = 0, ii = Beast._onReadyState.length; i < ii; i++) {
-        Beast._onReadyState[i]()
-    }
-}
-
-Beast._onReadyState = []
-Beast.onReadyState = function (callback) {
-    if (Beast._readyState) {
+/**
+ * Set callback when Beast is ready
+ *
+ * @callback function Function to call
+ */
+Beast.onReady = function (callback) {
+    if (Beast._isReady) {
         callback()
     } else {
-        this._onReadyState.push(callback)
+        this._onReadyCallbacks.push(callback)
     }
 }
 
@@ -280,17 +309,16 @@ Beast.onReadyState = function (callback) {
  *
  * @url string Path to script file
  */
-Beast.require = function (url) {
+Beast._require = function (url) {
     var xhr = new XMLHttpRequest()
     xhr.open('GET', url)
     xhr.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
-            Beast.checkReadyState()
+            Beast._checkIfReady()
         }
     }
-    xhr.send()
-
     Beast._httpRequestQueue.push(xhr)
+    xhr.send()
 }
 
 /**
@@ -299,7 +327,7 @@ Beast.require = function (url) {
  *
  * @text string Text to parse and attach
  */
-Beast.appendBML = function (text) {
+Beast.evalBml = function (text) {
     var parsedText = Beast.parseBML(text)
     if (/^[\s\n]*</.test(text)) {
         parsedText = parsedText + (
@@ -309,46 +337,13 @@ Beast.appendBML = function (text) {
         )
     }
 
-    var script = document.createElement('script')
-    script.text = parsedText
-    document.head.appendChild(script)
+    eval(parsedText)
 }
 
 /**
- * Converts <link type="bml"/> tag to Beast::require() method
+ * Converts <script type="bml"/> tag to Beast::evalBml() method
  */
-Beast.processDOMLinks = function () {
-    var links = document.getElementsByTagName('link')
-    var bmlLinks = []
-
-    Beast._cssLinksToLoad = 0
-
-    for (var i = 0, ii = links.length; i < ii; i++) {
-        var link = links[i]
-        if (link.type === 'bml' || link.rel === 'bml') {
-            Beast.require(link.href)
-            bmlLinks.push(link)
-        }
-        if (link.rel === 'stylesheet') {
-           Beast._cssLinksToLoad++
-           link.onload = function () {
-                Beast._cssLinksToLoad--
-                Beast.checkReadyState()
-            }
-        }
-    }
-
-    for (var i = 0, ii = bmlLinks.length; i < ii; i++) {
-        bmlLinks[i].parentNode.removeChild(bmlLinks[i])
-    }
-}
-
-/**
- * Converts <script type="bml"/> tag to Beast::appendBML() method
- */
-Beast.processDOMScripts = function () {
-    if (Beast._httpRequestQueue.length !== 0) return
-
+Beast._processBmlScripts = function () {
     var scripts = document.getElementsByTagName('script')
 
     for (var i = 0, ii = scripts.length; i < ii; i++) {
@@ -356,9 +351,37 @@ Beast.processDOMScripts = function () {
         var text = script.text
 
         if (script.type === 'bml' && text !== '') {
-            Beast.appendBML(text)
+            Beast.evalBml(text)
         }
     }
+}
+
+/**
+ * Initialize Beast
+ */
+Beast.init = function () {
+    var links = document.getElementsByTagName('link')
+    var bmlLinks = []
+
+    for (var i = 0, ii = links.length; i < ii; i++) {
+        var link = links[i]
+        if (link.type === 'bml' || link.rel === 'bml') {
+            Beast._require(link.href)
+            bmlLinks.push(link)
+        }
+        if (link.rel === 'stylesheet') {
+            Beast._cssLinksToLoad++
+            link.onload = link.onerror = function () {
+                Beast._checkIfReady()
+            }
+        }
+    }
+
+    for (var i = 0, ii = bmlLinks.length; i < ii; i++) {
+        bmlLinks[i].parentNode.removeChild(bmlLinks[i])
+    }
+
+    Beast._checkIfReady()
 }
 
 })();

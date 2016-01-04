@@ -37,6 +37,7 @@ function BemNode (nodeName, attr, children) {
     this._implementedNode = null    // Node wich this node implements
     this._bemNodeIndex = -1         // index in Beast._bemNode array
     this._css = {}                  // css properties
+    this._decl = null               // declaration for component
 
     // Define if block or elem
     var firstLetter = nodeName.substr(0,1)
@@ -45,6 +46,7 @@ function BemNode (nodeName, attr, children) {
 
     if (this._isBlock) {
         this._name = nodeName.toLowerCase()
+        this._decl = Beast._decl[this._name]
         this._parentBlock = this
         this._defineUserMethods()
     }
@@ -78,6 +80,36 @@ BemNode.prototype = {
     /*
      * PUBLIC
      */
+    inherited: function () {
+        if (!this._decl || !this._decl.inheritedDecls) return this
+
+        var caller = arguments.callee.caller
+        if (typeof caller._inherited !== 'undefined') {
+            if (caller._inherited !== false) caller._inherited.call(this)
+            return this
+        }
+
+        var callerPath = this._findCallerPath(caller, this._decl)
+        if (typeof callerPath === 'undefined') return this
+
+        for (var i = this._decl.inheritedDecls.length-1; i >= 0; i--) {
+            var inheritedCaller = this._decl.inheritedDecls[i]
+
+            for (var j = 0, jj = callerPath.length; j < jj; j++) {
+                if (!( inheritedCaller = inheritedCaller[callerPath[j]] )) break
+            }
+
+            if (inheritedCaller) {
+                arguments.callee.caller._inherited = inheritedCaller
+                inheritedCaller.call(this)
+                break
+            } else {
+                arguments.callee.caller._inherited = false
+            }
+        }
+
+        return this
+    },
 
     /**
      * If node is block
@@ -202,6 +234,7 @@ BemNode.prototype = {
                 this._clearUserMethods()
                 this._parentBlock = bemNode._parentBlock
                 this._name = this._parentBlock._name + '__' + this._nodeName
+                this._decl = Beast._decl[this._name]
                 this._defineUserMethods()
 
                 if (!dontAffectChildren) {
@@ -223,7 +256,7 @@ BemNode.prototype = {
      * @bemNode object parent node
      */
     parentNode: function (bemNode) {
-        if (bemNode) {
+        if (typeof bemNode !== 'undefined') {
             if (bemNode instanceof BemNode) {
                 this._prevParentNode = this._parentNode
                 this._parentNode = bemNode
@@ -248,15 +281,21 @@ BemNode.prototype = {
      * @name  string Attribute name
      * @value string Attribute value
      */
-    domAttr: function (name, value) {
+    domAttr: function (name, value, domOnly) {
         if (typeof name === 'object') {
             for (key in name) this.domAttr(key, name[key])
         } else if (typeof value === 'undefined') {
             return this._domAttr[name]
         } else {
-            this._domAttr[name] = value
+            if (!domOnly) {
+                this._domAttr[name] = value
+            }
             if (this._domNode) {
-                this._domNode.setAttribute(name, value)
+                if (value === false || value === '') {
+                    this._domNode.removeAttribute(name)
+                } else {
+                    this._domNode.setAttribute(name, value)
+                }
             }
         }
 
@@ -508,7 +547,7 @@ BemNode.prototype = {
         for (var i = 0, ii = arguments.length; i < ii; i++) {
             var child = arguments[i]
 
-            if (child === false) {
+            if (child === false || child === null || typeof child === 'undefined') {
                 continue
             } else if (Array.isArray(child)) {
                 this.append.apply(this, child)
@@ -562,16 +601,17 @@ BemNode.prototype = {
         var parentNode = this._parentNode
         var siblingsAfter
 
-        if (parentNode === bemNode) {
-            parentNode = this._prevParentNode
-        } else {
-            siblingsAfter = parentNode._children.splice(this.index())
-            siblingsAfter.shift()
+        if (parentNode) {
+            if (parentNode === bemNode) {
+                parentNode = this._prevParentNode
+            } else {
+                siblingsAfter = parentNode._children.splice(this.index())
+                siblingsAfter.shift()
+            }
+            parentNode._isReplaceContext = true
+            parentNode.append(bemNode)
+            parentNode._isReplaceContext = false
         }
-
-        parentNode._isReplaceContext = true
-        parentNode.append(bemNode)
-        parentNode._isReplaceContext = false
 
         if (siblingsAfter) {
             parentNode._children = parentNode._children.concat(siblingsAfter)
@@ -703,6 +743,32 @@ BemNode.prototype = {
     },
 
     /**
+     * Clones itself
+     */
+    clone: function () {
+        var clone = {}
+        clone.__proto__ = this.__proto__
+
+        for (key in this) {
+            if (key === '_children') {
+                var cloneChildren = []
+                for (var i = 0, ii = this._children.length; i < ii; i++) {
+                    cloneChildren.push(
+                        this._children[i] instanceof BemNode
+                            ? this._children[i].clone()
+                            : this._children[i]
+                    )
+                }
+                clone._children = cloneChildren
+            } else {
+                clone[key] = this[key]
+            }
+        }
+
+        return clone
+    },
+
+    /**
      * Expands bemNode. Creates DOM-node and appends to the parent bemNode's DOM.
      * Also renders its children. Inits DOM declarations at the end.
      *
@@ -727,7 +793,7 @@ BemNode.prototype = {
             this._setDomNodeCSS()
 
             for (key in this._domAttr) {
-                this._domNode.setAttribute(key, this._domAttr[key])
+                this.domAttr(key, this._domAttr[key], true)
             }
         }
 
@@ -844,10 +910,10 @@ BemNode.prototype = {
     _expand: function () {
         if (this._isExpanded) return
 
-        var decl = Beast._decl[this._name]
+        var decl = this._decl
         if (decl) {
             this._isExpandContext = true
-            decl.expand.call(this)
+            decl.commonExpand && decl.commonExpand.call(this)
             this._completeExpand()
             this._isExpandContext = false
         }
@@ -869,13 +935,13 @@ BemNode.prototype = {
      * Initial instructions for the DOM-element
      */
     _domInit: function () {
-        var decl = Beast._decl[this._name]
+        var decl = this._decl
         if (decl) {
-            decl.domInit.call(this)
+            decl.commonDomInit && decl.commonDomInit.call(this)
         }
 
-        if (this._implementedNode && (decl = Beast._decl[this._implementedNode._name])) {
-            decl.domInit.call(this)
+        if (this._implementedNode && (decl = this._implementedNode._decl)) {
+            decl.commonDomInit && decl.commonDomInit.call(this)
         }
 
         this._domInited = true
@@ -1020,14 +1086,12 @@ BemNode.prototype = {
     /**
      * Defines user's methods
      */
-    _defineUserMethods: function () {
-        var selector = arguments[0] || this._name
-        var decl = Beast._decl[selector]
-
-        if (!decl) return
-
-        for (methodName in decl._userMethods) {
-            this[methodName] = decl._userMethods[methodName]
+    _defineUserMethods: function (selector) {
+        var decl = selector ? Beast._decl[selector] : this._decl
+        if (decl) {
+            for (methodName in decl.userMethods) {
+                this[methodName] = decl.userMethods[methodName]
+            }
         }
     },
 
@@ -1036,7 +1100,7 @@ BemNode.prototype = {
      */
     _clearUserMethods: function () {
         if (this._name === '' || !Beast._decl[this._name]) return
-        var userMethods = Beast._decl[this._name]._userMethods
+        var userMethods = Beast._decl[this._name].userMethods
         for (methodName in userMethods) {
             this[methodName] = null
         }
@@ -1046,8 +1110,33 @@ BemNode.prototype = {
      * Unlinks node from the common list of nodes
      */
     _unlink: function () {
+        var decl = this._decl
+        if (decl) {
+            decl.onRemove.call(this)
+        }
+
         if (this._bemNodeIndex >= 0) {
             Beast._bemNodes[this._bemNodeIndex] = null
+        }
+    },
+
+    /**
+     * Finds @path to decl method equal to @caller
+     *
+     * @caller  function
+     * @context object
+     * @path    array
+     */
+    _findCallerPath: function (caller, context, path) {
+        if (typeof path === 'undefined') path = []
+
+        for (var key in context) {
+            if (typeof context[key] === 'object') {
+                var possiblePath = this._findCallerPath(caller, context[key], path.concat(key))
+                if (typeof possiblePath !== 'undefined') return path.concat(possiblePath)
+            } else if (typeof context[key] === 'function' && context[key] === caller) {
+                return path.concat(key)
+            }
         }
     }
 }

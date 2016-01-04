@@ -48,8 +48,10 @@
     * [getWithContext](#ref-bemnode-getwithcontext)
     * [has](#ref-bemnode-has)
     * [afterDomInit](#ref-bemnode-afterDomInit)
+    * [clone](#ref-bemnode-clone)
     * [render](#ref-bemnode-render)
     * [renderHTML](#ref-bemnode-renderhtml)
+    * [inherited](#ref-bemnode-inherited)
   * [Beast.decl()](#ref-decl)
     * [inherits](#ref-decl-inherits)
     * [expand](#ref-decl-expand)
@@ -63,12 +65,12 @@
     * [on](#ref-decl-on)
     * [onWin](#ref-decl-onwin)
     * [onMod](#ref-decl-onmod)
+    * [onRemove](#ref-decl-onremove)
   * [Прочие методы Beast](#ref-beast)
     * [node](#ref-beast-node)
     * [findNodes](#ref-beast-findnodes)
     * [findNodeById](#ref-beast-findnodebyid)
-    * [require](#ref-beast-require)
-    * [parseBML](#ref-beast-parsebml)
+    * [onReady](#ref-beast-onready)
 * [Рецепты](#recipes)
   * [Hello, world](#recipes-helloworld)
   * [Стиль кода](#recipes-codestyle)
@@ -1119,6 +1121,11 @@ Beast.decl('browser', {
 
 Обработчики onMod назначаются при создании DOM-узла компонента — на момент DOM-инициализации `tabs__tab` компонент `tab` еще не имел своего DOM-узла.
 
+<a name="ref-bemnode-clone"/>
+#### clone ()
+
+Создает полную копию себя.
+
 <a name="ref-bemnode-render"/>
 #### render (domNode:DOMElement)
 По большей части служебный метод. Инициирует рекурсивный процесс развертки и инициализации поведения компонента. В аргументе указывается родительский DOM-элемент для корневого компонента. Например, так выглядит создание компонента и привязка его к DOM дереву с последующей инициализацией.
@@ -1131,6 +1138,34 @@ button.render(document.body)
 <a name="ref-bemnode-renderhtml"/>
 #### renderHTML () :string
 Генерация текстового HTML компонента и его дочерних элементов.
+
+<a name="ref-bemnode-inherited"/>
+#### inherited () :string
+Вызов переопределенной функции из наследуемой декларации.
+
+```js
+Beast.decl({
+    foo: {
+        on: {
+            click: function () {
+                console.log('foo click')
+            }
+        }
+    },
+    bar: {        
+        inherits: 'foo',        
+        on: {
+            click: function () {
+                this.inherited()
+                console.log('bar click')
+            }
+        }
+    }
+})
+
+// foo click
+// bar click
+```
 
 ---
 
@@ -1322,6 +1357,11 @@ Beast.decl('tabs__tab', {
     }
 })
 ```
+
+<a name="ref-decl-onremove"/>
+#### onRemove(callback:function)
+Деструктор компонента — последние операции перед удалением.
+
 <a name="ref-beast"/>
 ### Прочие методы Beast
 
@@ -1392,23 +1432,10 @@ Beast.findNodes('Tabs__tab_state_active')
 
 Найти компонент с идентификатором `id`.
 
-<a name="ref-beast-require"/>
-#### require (url:string)
+<a name="ref-beast-onready"/>
+#### onReady (callback:function)
 
-Служебный метод. Асинхронное подключение BML-файлов к текущей странице с синхронной инициализацией.
-
-```js
-Beast.require('/blocks/button/button.bml')
-Beast.require('/blocks/select/select.bml')
-Beast.require('/blocks/radio/radio.bml')
-```
-
-Вне зависимости от порядка реальной загрузки, инициализация скриптов произойдет в порядке вызова методов.
-
-<a name="ref-beast-parsebml"/>
-#### parseBML (text:string) :string
-
-Служебный метод. Преобразует javascript с BML-вставками в чистый javascript.
+Выполнит callback-функцию, когда загрузятся все стили и скрипты.
 
 ---
 
