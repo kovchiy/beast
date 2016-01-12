@@ -38,6 +38,7 @@ function BemNode (nodeName, attr, children) {
     this._bemNodeIndex = -1         // index in Beast._bemNode array
     this._css = {}                  // css properties
     this._decl = null               // declaration for component
+    this._renderedOnce = false      // Flag if compontent was rendered once at least
 
     // Define if block or elem
     var firstLetter = nodeName.substr(0,1)
@@ -257,7 +258,10 @@ BemNode.prototype = {
      */
     parentNode: function (bemNode) {
         if (typeof bemNode !== 'undefined') {
-            if (bemNode instanceof BemNode) {
+            if (this._domNode) {
+                this.remove(true)
+            }
+            if (bemNode !== this._parentNode) {
                 this._prevParentNode = this._parentNode
                 this._parentNode = bemNode
             }
@@ -491,7 +495,7 @@ BemNode.prototype = {
     /**
      * Empties children.
      */
-    empty: function () {
+    empty: function (dontUnlink) {
         var children
 
         if (this._isExpandContext) {
@@ -502,7 +506,7 @@ BemNode.prototype = {
             this._children = []
         }
 
-        if (children) {
+        if (children && !dontUnlink) {
             for (var i = 0, ii = children.length; i < ii; i++) {
                 if (children[i] instanceof BemNode) {
                     children[i]._unlink()
@@ -523,15 +527,20 @@ BemNode.prototype = {
      * Removes current node
      */
     remove: function (dontUnlink) {
-        if (this._domNode) {
+        if (this._domNode && this._domNode.parentNode) {
             this._domNode.parentNode.removeChild(this._domNode)
         }
 
         if (this._parentNode) {
-            this._parentNode._children = this._parentNode._children.splice(this.index(), 1)
+            this._parentNode._children.splice(
+                this._parentNode._children.indexOf(this), 1
+            )
+            this._parentNode = null
         }
 
-        if (!dontUnlink) this._unlink()
+        if (!dontUnlink) {
+            this._unlink()
+        }
 
         return this
     },
@@ -775,12 +784,21 @@ BemNode.prototype = {
      * @parentDOMNode object Parent for the root node attaching
      */
     render: function (parentDOMNode) {
-        this._expand()
 
+        // Call expand handler
+        if (!this._isExpanded && this._decl && this._decl.commonExpand) {
+            this._isExpandContext = true
+            this._decl.commonExpand.call(this)
+            this._completeExpand()
+            this._isExpandContext = false
+        }
+
+        // Continue only if parent node is defined
         if (!parentDOMNode && !this._parentNode) {
             return this
         }
 
+        // Create DOM element if there isn't
         if (!this._domNode) {
             this._domNode = document.createElement(this._tag)
             this._domNode.bemNode = this
@@ -797,6 +815,7 @@ BemNode.prototype = {
             }
         }
 
+        // Append to DOM tree
         if (parentDOMNode) {
             parentDOMNode.appendChild(
                 this._domNode
@@ -807,22 +826,30 @@ BemNode.prototype = {
             )
         }
 
+        // Render children
         for (var i = 0, ii = this._children.length; i < ii; i++) {
             this._renderChildWithIndex(i)
         }
 
+        // Save to global compontens array
         this._bemNodeIndex = Beast._bemNodes.length
         Beast._bemNodes.push(this)
 
+        // For HTML-body remove previous body tag
         if (this._tag === 'body') {
             document.documentElement.replaceChild(this._domNode, document.body)
         }
 
+        // Call mod handlers
         for (modName in this._mod) {
             this._callModHandlers(modName, this._mod[modName])
         }
 
+        // Call DOM init handlers
         this._domInit()
+
+        // Compontent was rendered once at least
+        this._renderedOnce = true
 
         return this
     },
@@ -835,7 +862,7 @@ BemNode.prototype = {
     renderHTML: function () {
         var html = ''
 
-        // Do some recursive routine here
+        //TODO: Some recursive routine here
 
         return html
     },
@@ -897,25 +924,10 @@ BemNode.prototype = {
 
         if (child instanceof BemNode) {
             child.render()
-        } else {
+        } else if (!this._renderedOnce) {
             this._domNode.appendChild(
                 document.createTextNode(child)
             )
-        }
-    },
-
-    /**
-     * Builds expanded children tree to replace the main
-     */
-    _expand: function () {
-        if (this._isExpanded) return
-
-        var decl = this._decl
-        if (decl) {
-            this._isExpandContext = true
-            decl.commonExpand && decl.commonExpand.call(this)
-            this._completeExpand()
-            this._isExpandContext = false
         }
     },
 

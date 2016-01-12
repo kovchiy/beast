@@ -1,6 +1,6 @@
 {
   "name": "Beast",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "homepage": "github.yandex-team.ru/kovchiy/beast",
   "description": "An old hunter who welcomes and guides new hunters in the dream, what secrets does he hide?",
   "devDependencies": {
