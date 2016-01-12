@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.10.0
+ * @version 0.11.0
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 if (typeof window !== 'undefined') {
@@ -106,18 +106,32 @@ Beast._compileDeclarations = function () {
         }
     }
 
+    function inherit (decl, inheritedDecls, flattenInherits) {
+        for (var i = inheritedDecls.length-1; i >= 0; i--) {
+            var selector = inheritedDecls[i]
+            var inheritedDecl = Beast._decl[selector]
+
+            if (!flattenInherits) flattenInherits = []
+            flattenInherits.push(selector)
+
+            if (inheritedDecl) {
+                extend(decl, inheritedDecl)
+
+                if (!decl.inheritedDecls) decl.inheritedDecls = []
+                decl.inheritedDecls.push(inheritedDecl)
+
+                if (inheritedDecl.inherits) inherit(decl, inheritedDecl.inherits, flattenInherits)
+            }
+        }
+
+        return flattenInherits
+    }
+
     for (var selector in Beast._decl) (function (decl) {
 
         // Extend decl with inherited rules
         if (decl.inherits) {
-            for (var i = decl.inherits.length-1; i >= 0; i--) {
-                var inheritedDecl = Beast._decl[decl.inherits[i]]
-                if (inheritedDecl) {
-                    extend(decl, inheritedDecl)
-                    if (!decl.inheritedDecls) decl.inheritedDecls = []
-                    decl.inheritedDecls.push(inheritedDecl)
-                }
-            }
+            var flattenInherits = inherit(decl, decl.inherits)
         }
 
         // Compile expand rules to methods array
@@ -135,9 +149,9 @@ Beast._compileDeclarations = function () {
                 this.mix.apply(this, decl.mix)
             })
         }
-        if (decl.inherits) {
+        if (flattenInherits) {
             expandHandlers.unshift(function () {
-                this.mix.apply(this, decl.inherits)
+                this.mix.apply(this, flattenInherits)
             })
         }
         if (decl.mod) {
@@ -188,6 +202,11 @@ Beast._compileDeclarations = function () {
                     this.onWin(events, decl.onWin[events])
                 }
             })
+        }
+
+        // Compile destructor
+        if (typeof decl.onRemove === 'undefined') {
+            decl.onRemove = function () {}
         }
 
         // Compile common handlers

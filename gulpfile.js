@@ -15,8 +15,7 @@ gulp.task('default', function() {
                 ' * ' + pkg.name,
                 ' * @version ' + pkg.version,
                 ' * @homepage ' + pkg.homepage,
-                ' */',
-                ''
+                ' */\n'
             ].join('\n'))
         )
         .pipe(gulp.dest('./build'))
