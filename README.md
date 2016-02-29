@@ -28,6 +28,7 @@
     * [defineParam](#ref-bemnode-defineparam)
     * [mix](#ref-bemnode-mix)
     * [mod](#ref-bemnode-mod)
+    * [toggleMod](#ref-bemnode-togglemod)
     * [param](#ref-bemnode-param)
     * [domAttr](#ref-bemnode-domattr)
     * [css](#ref-bemnode-css)
@@ -44,6 +45,7 @@
     * [replaceWith](#ref-bemnode-replacewith)
     * [implementWith](#ref-bemnode-implementwith)
     * [text](#ref-bemnode-text)
+    * [elem](#ref-bemnode-elem)
     * [get](#ref-bemnode-get)
     * [getWithContext](#ref-bemnode-getwithcontext)
     * [has](#ref-bemnode-has)
@@ -52,6 +54,8 @@
     * [render](#ref-bemnode-render)
     * [renderHTML](#ref-bemnode-renderhtml)
     * [inherited](#ref-bemnode-inherited)
+    * [isKindOf](#ref-bemnode-iskindof)
+    * [expand](#ref-bemnode-expand)
   * [Beast.decl()](#ref-decl)
     * [inherits](#ref-decl-inherits)
     * [expand](#ref-decl-expand)
@@ -68,8 +72,6 @@
     * [onRemove](#ref-decl-onremove)
   * [Прочие методы Beast](#ref-beast)
     * [node](#ref-beast-node)
-    * [findNodes](#ref-beast-findnodes)
-    * [findNodeById](#ref-beast-findnodebyid)
     * [onReady](#ref-beast-onready)
 * [Рецепты](#recipes)
   * [Hello, world](#recipes-helloworld)
@@ -787,6 +789,10 @@ Beast.decl('popup', {
 })
 ```
 
+<a name="ref-bemnode-togglemod"/>
+#### togglemod (modName:string, modValue1:string|boolean, modValue2:string|boolean)
+Переключить модификатор: если не установлен ни один, установить первый; если установлен первый, установить второй и наоборот.
+
 <a name="ref-bemnode-param"/>
 #### param (paramName:string, [paramValue:anything]) [:anything]
 Получить или назначить параметр.
@@ -1010,6 +1016,10 @@ Beast.decl('tabs__tab', {
 #### text () :string
 Получить конкатенацию дочерних текстовых элементов. Другими словами, просто текстовое содержимое компонента.
 
+<a name="ref-bemnode-elem"/>
+#### elem (name:string) :array
+Получить массив элементов блока без учета уровня вложенности. Метод актуальнен только для блока. Крайне не рекомендуется использовать этот метод в паре с `append` — для этого потойдет метод `get()`, вынимающий только ближайших детей.
+
 <a name="ref-bemnode-get"/>
 #### get (path:string...) :array|string
 Получить массив дочерних компонентов, их текстовое содержимое или значение атрибутов.
@@ -1038,7 +1048,8 @@ Beast.decl('tabs__tab', {
 ```js
 Beast.decl('browser', {
     expand: function () {
-        this.get() // все дочерние элементы
+        this.get() // все дети включая текст
+        this.get('/') // все дочерние компоненты
         this.get('../Player')[0] // соседний компонент с именем Player
         this.get('head')[0] // компонент шапки
         this.get('head')[0].sayTrue() // true
@@ -1166,6 +1177,14 @@ Beast.decl({
 // foo click
 // bar click
 ```
+
+<a name="ref-bemnode-iskindof"/>
+#### isKindOf () :string
+Проверка, соответствует ли компонент или его предки (см. поле декларации inherits) селектору.
+
+<a name="ref-bemnode-expand"/>
+#### expand (child:BemNode|string...)
+Повторная перерисовка блока с новыми входными данными, с размерткой и инициализацией. Текущие дети блока удалятся, но модификаторы и параметры останутся. 
 
 ---
 
@@ -1375,62 +1394,6 @@ Beast.node('Button', {'Size':'M', 'href':'#foo'}, 'Перейти')
 ```
 
 Служебный метод. Создает экземпляр класса BemNode. Эквивалент BML-разметки.
-
-<a name="ref-beast-findnodes"/>
-#### findNodes (selector:string...)
-
-Поиск компонента по CSS-селектору. Метод может быть полезен для организации связи один ко многим.
-
-К примеру, нужно сделать, чтобы один блок подсказки всплывал при взаимодействии с разными компонентами браузера. Цели подсказки для наблюдения можно перечислить в параметре target:
-
-```xml
-<Browser>
-    <Popup-helper target="Tabs__newtab Addressbar"></Popup-helper>
-    <head>
-        <Tabs>
-            <tab State="active">Yandex</tab>
-            <tab State="release">Lenta.ru</tab>
-            <newtab/>
-        </Tabs>
-        <Addressbar>https://yandex.ru</Addressbar>
-    </head>
-    <content>
-        <Webview State="active" url="https://yandex.ru"/>
-        <Webview State="release" url="http://lenta.ru"/>
-    </content>
-</Browser>
-```
-
-```js
-Beast.decl('popup', {
-    domInit: function () {
-        var targetNodes = Beast.findNodes.apply(
-            this.param('target').split(' ')
-        )
-        for (var i = 0; i < targetNodes.length; i++) {
-            targetNodes[i]
-                .on('mouseover', this.show.bind(this))
-                .on('mouseout', this.hide.bind(this))
-        }
-    },
-    show: function () {...},
-    hide: function () {...}
-})
-```
-
-Сделать такое через общую шину событий не получится, потому что нет гарантии что целевые компоненты отдают ей нужные события — в данном случае компонентам `Tabs__newtab` и `Addressbar` пришлось генерировать события общей шины по наведению и уводу указателя мыши просто ради того, чтобы у `Popup-helper` была гипотетическая возможность подписаться именно на них.
-
-Селекторы могут включать значение модификатора:
-```js
-Beast.findNodes('Tabs__tab_state_active')
-```
-
-Поиск происходит в цикле по плоскому списку компонент с предсохраненным списком соответствующих селекторов — метод настолько быстрый, насколько это возможно.
-
-<a name="ref-beast-findnodebyid"/>
-#### findNodeById (id:string)
-
-Найти компонент с идентификатором `id`.
 
 <a name="ref-beast-onready"/>
 #### onReady (callback:function)

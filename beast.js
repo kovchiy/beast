@@ -1,8 +1,11 @@
 /**
  * Beast
- * @version 0.11.5
+ * @version 0.16.0
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
+
+'use strict';
+
 ;(function () {
 
 if (typeof window !== 'undefined') {
@@ -23,7 +26,6 @@ var HttpRequestQueue = []            // Queue of required bml-files with link ta
 var CssLinksToLoad = 0               // Num of <link rel="stylesheet"> in the <head>
 var BeastIsReady = false             // If all styles and scripts are loaded
 var OnBeastReadyCallbacks = []       // Functions to call when sources are ready
-var CreatedBemNodes = []             // Ever created bem nodes
 var ReStartBML = /<[a-z][^>]+\/?>/i  // Regular expression matches start of BML substring
 var ReComment = /<!--[^]*-->/g       // Regular expression matches XML comments
 
@@ -44,10 +46,10 @@ var ReservedDeclarationProperies = {
     noElems:1,
 
     // 2 means not to inherit this field
-    inheritedDecls:2,
     userMethods:2,
     commonExpand:2,
-    commonDomInit:2
+    commonDomInit:2,
+    flattenInherits:2,
 }
 
 // CSS-properties measured in px commonly
@@ -72,13 +74,13 @@ Beast.init = function () {
     for (var i = 0, ii = links.length; i < ii; i++) {
         var link = links[i]
         if (link.type === 'bml' || link.rel === 'bml') {
-            Require(link.href)
+            RequireModule(link.href)
             bmlLinks.push(link)
         }
         if (link.rel === 'stylesheet') {
             CssLinksToLoad++
             link.onload = link.onerror = function () {
-                CheckIfReady()
+                CheckIfBeastIsReady()
             }
         }
     }
@@ -87,7 +89,7 @@ Beast.init = function () {
         bmlLinks[i].parentNode.removeChild(bmlLinks[i])
     }
 
-    CheckIfReady()
+    CheckIfBeastIsReady()
 }
 
 /**
@@ -95,12 +97,12 @@ Beast.init = function () {
  *
  * @url string Path to script file
  */
-function Require (url) {
+function RequireModule (url) {
     var xhr = new XMLHttpRequest()
     xhr.open('GET', url)
     xhr.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
-            CheckIfReady()
+            CheckIfBeastIsReady()
         }
     }
     HttpRequestQueue.push(xhr)
@@ -110,7 +112,7 @@ function Require (url) {
 /**
  * Checks if all <link> are loaded
  */
-function CheckIfReady () {
+function CheckIfBeastIsReady () {
     if (BeastIsReady) return
 
     var isReady = true
@@ -250,6 +252,16 @@ function CompileDeclarations () {
 
             if (typeof obj[key] === 'undefined') {
                 obj[key] = extObj[key]
+            } else if (typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction) {
+                (function (fn, inheritedFn, inheritedDecl) {
+                    fn._inheritedDeclFunction = function () {
+                        // Imitate inherited decl context for inner inherited() calls
+                        var temp = this._decl
+                        this._decl = inheritedDecl
+                        inheritedFn.call(this)
+                        this._decl = temp
+                    }
+                })(obj[key], extObj[key], extObj)
             } else if (typeof extObj[key] === 'object' && !Array.isArray(extObj[key])) {
                 extend(obj[key], extObj[key])
             }
@@ -279,11 +291,6 @@ function CompileDeclarations () {
             if (inheritedDecl) {
                 extend(decl, inheritedDecl)
 
-                if (typeof decl.inheritedDecls === 'undefined') {
-                    decl.inheritedDecls = []
-                }
-                decl.inheritedDecls.push(inheritedDecl)
-
                 if (inheritedDecl.inherits) {
                     inherit(decl, inheritedDecl.inherits, flattenInherits)
                 }
@@ -298,6 +305,7 @@ function CompileDeclarations () {
         // Extend decl with inherited rules
         if (decl.inherits) {
             var flattenInherits = inherit(decl, decl.inherits)
+            decl.flattenInherits = flattenInherits
         }
 
         // Compile expand rules to methods array
@@ -388,41 +396,6 @@ function CompileDeclarations () {
         }
 
     })(Declaration[selector])
-}
-
-/**
- * Finds BEM-nodes by selector
- * @arguments array Selectors
- * @return    array Nodes found
- */
-Beast.findNodes = function () {
-    var nodesFound = []
-
-    for (var j = 0, jj = arguments.length; j < jj; j++) {
-        var selector = arguments[j]
-        for (var i = 0, ii = CreatedBemNodes.length; i < ii; i++) {
-            var node = CreatedBemNodes[i]
-            if (node && node._domClasses.indexOf(selector) >= 0) {
-                nodesFound.push(node)
-            }
-        }
-    }
-
-    return nodesFound
-}
-
-/**
- * Finds BEM-node by id
- * @id     string  ID
- * @return BemNode Node found
- */
-Beast.findNodeById = function (id) {
-    for (var i = 0, ii = CreatedBemNodes.length; i < ii; i++) {
-        var node = CreatedBemNodes[i]
-        if (node && node._id === id) {
-            return node
-        }
-    }
 }
 
 /**
@@ -768,10 +741,11 @@ var BemNode = function (nodeName, attr, children) {
     this._id = ''                   // Node identifier
     this._noElems = false           // Flag if block can have children
     this._implementedNode = null    // Node wich this node implements
-    this._bemNodeIndex = -1         // index in Beast._bemNode array
     this._css = {}                  // css properties
     this._decl = null               // declaration for component
-    this._renderedOnce = false      // Flag if compontent was rendered once at least
+    this._kindOf = []               // inherited declaration selectors including itself for component
+    this._renderedOnce = false      // flag if component was rendered at least once
+    this._elems = []                // array of elements (for block only)
 
     // Define if block or elem
     var firstLetter = nodeName.substr(0,1)
@@ -837,66 +811,31 @@ BemNode.prototype = {
 
     /**
      * Runs overwritten method's code
+     *
+     * @caller function ECMA6 claims caller function link
      */
-    inherited: function () {
-        if (!this._decl || !this._decl.inheritedDecls) return this
-
-        var caller = arguments.callee.caller
-        if (typeof caller._inheritedDeclFunction !== 'undefined') {
-            if (caller._inheritedDeclFunction !== false) caller._inheritedDeclFunction.call(this)
-            return this
-        }
-
-        var callerPath = this._findInheritedCallerPath(caller, this._decl)
-        if (typeof callerPath === 'undefined') return this
-
-        for (var i = 0, ii = this._decl.inheritedDecls.length; i < ii; i++) {
-            var inheritedCaller = this._decl.inheritedDecls[i]
-
-            for (var j = 0, jj = callerPath.length, caller; j < jj; j++) {
-                if (!( inheritedCaller = inheritedCaller[callerPath[j]] )) break
-            }
-
-            if (inheritedCaller) {
-                // Cache inherited code for caller
-                arguments.callee.caller._inheritedDeclFunction = function () {
-                    // Imitate inherited decl context for inner inherited() calls
-                    var temp = this._decl
-                    this._decl = this._decl.inheritedDecls[i]
-                    inheritedCaller.call(this)
-                    this._decl = temp
-                }
-                arguments.callee.caller._inheritedDeclFunction.call(this)
-                break
-            } else {
-                // Also worth to cache that there's no inherited code
-                arguments.callee.caller._inheritedDeclFunction = false
-            }
+    inherited: function (caller) {
+        if (caller && typeof caller._inheritedDeclFunction !== 'undefined') {
+            caller._inheritedDeclFunction.call(this)
         }
 
         return this
     },
 
     /**
-     * Finds @path to decl method equal to @caller
+     * Checks if component is @selctor was inherited from @selector
      *
-     * @caller  function
-     * @context object
-     * @path    array
+     * @selector string
+     * @return boolean
      */
-    _findInheritedCallerPath: function (caller, context, path) {
-        if (typeof path === 'undefined') path = []
+    isKindOf: function (selector) {
+        var isKindOfSelector = this._name === selector
 
-        for (var key in context) {
-            if (typeof context[key] === 'object') {
-                var possiblePath = this._findInheritedCallerPath(caller, context[key], path.concat(key))
-                if (typeof possiblePath !== 'undefined') {
-                    return path.concat(possiblePath)
-                }
-            } else if (typeof context[key] === 'function' && context[key] === caller) {
-                return path.concat(key)
-            }
+        if (!isKindOfSelector && this._decl && this._decl.flattenInherits) {
+            isKindOfSelector = this._decl.flattenInherits.indexOf(selector) > -1
         }
+
+        return isKindOfSelector
     },
 
     /**
@@ -1020,7 +959,9 @@ BemNode.prototype = {
                 }
 
                 this._clearUserMethods()
+                this._removeFromParentBlockElems()
                 this._parentBlock = bemNode._parentBlock
+                this._addToParentBlockElems()
                 this._name = this._parentBlock._name + '__' + this._nodeName
                 this._decl = Declaration[this._name]
                 this._defineUserMethods()
@@ -1188,6 +1129,23 @@ BemNode.prototype = {
     },
 
     /**
+     * Toggles mods.
+     *
+     * @name   string         Modifier name
+     * @value1 string|boolean Modifier value 1
+     * @value2 string|boolean Modifier value 2
+     */
+    toggleMod: function (name, value1, value2) {
+        if (!this.mod(name) || this.mod(name) === value2) {
+            this.mod(name, value1)
+        } else {
+            this.mod(name, value2)
+        }
+
+        return this
+    },
+
+    /**
      * Sets or gets parameter.
      * @name, [@value]
      *
@@ -1318,7 +1276,7 @@ BemNode.prototype = {
     /**
      * Empties children.
      */
-    empty: function (dontUnlink) {
+    empty: function () {
         var children
 
         if (this._isExpandContext) {
@@ -1329,10 +1287,11 @@ BemNode.prototype = {
             this._children = []
         }
 
-        if (children && !dontUnlink) {
+        if (children) {
             for (var i = 0, ii = children.length; i < ii; i++) {
                 if (children[i] instanceof BemNode) {
                     children[i]._unlink()
+                    children[i]._removeFromParentBlockElems()
                 }
             }
         }
@@ -1354,9 +1313,44 @@ BemNode.prototype = {
         if (decl) {
             decl.onRemove.call(this)
         }
+    },
 
-        if (this._bemNodeIndex >= 0) {
-            CreatedBemNodes[this._bemNodeIndex] = null
+    /**
+     * Remove compontent from parent block elems array
+     */
+    _removeFromParentBlockElems: function () {
+        var parentBlock
+
+        if (this._isElem) {
+            parentBlock = this._parentBlock
+        } else if (this._isBlock && this._implementedNode) {
+            parentBlock = this._implementedNode._parentBlock
+        }
+
+        if (parentBlock) {
+            for (var i = 0, ii = this._parentBlock._elems.length; i < ii; i++) {
+                if (this._parentBlock._elems[i] === this) {
+                    this._parentBlock._elems.splice(i,1)
+                    break
+                }
+            }
+        }
+    },
+
+    /**
+     * Add compontent to parent block elems array
+     */
+    _addToParentBlockElems: function () {
+        var parentBlock
+
+        if (this._isElem) {
+            parentBlock = this._parentBlock
+        } else if (this._isBlock && this._implementedNode) {
+            parentBlock = this._implementedNode._parentBlock
+        }
+
+        if (parentBlock) {
+            parentBlock._elems.push(this)
         }
     },
 
@@ -1378,6 +1372,8 @@ BemNode.prototype = {
         if (!dontUnlink) {
             this._unlink()
         }
+
+        this._removeFromParentBlockElems()
 
         return this
     },
@@ -1497,6 +1493,8 @@ BemNode.prototype = {
         this._extendProperty('_mod', bemNode._mod)
         bemNode._defineUserMethods(this._name)
         this.replaceWith(bemNode)
+        this._removeFromParentBlockElems()
+        bemNode._addToParentBlockElems()
     },
 
     /**
@@ -1513,6 +1511,27 @@ BemNode.prototype = {
         }
 
         return text
+    },
+
+    /**
+     * Gets elements by name
+     */
+    elem: function () {
+        if (this._isElem) return
+
+        var elems = []
+        for (var i = 0, ii = this._elems.length, elem; i < ii; i++) {
+            elem = this._elems[i]
+            for (var j = 0, jj = arguments.length; j < jj; j++) {
+                if (elem._nodeName === arguments[j] ||
+                    elem._implementedNode && elem._implementedNode._nodeName === arguments[j]
+                ) {
+                    elems.push(elem)
+                }
+            }
+        }
+
+        return elems
     },
 
     /**
@@ -1698,13 +1717,9 @@ BemNode.prototype = {
 
         // Append to DOM tree
         if (parentDOMNode) {
-            parentDOMNode.appendChild(
-                this._domNode
-            )
+            parentDOMNode.appendChild(this._domNode)
         } else {
-            this._parentNode._domNode.appendChild(
-                this._domNode
-            )
+            this._parentNode._domNode.appendChild(this._domNode)
         }
 
         // When first time render
@@ -1714,10 +1729,6 @@ BemNode.prototype = {
             for (var i = 0, ii = this._children.length; i < ii; i++) {
                 this._renderChildWithIndex(i)
             }
-
-            // Save to global compontens array
-            this._bemNodeIndex = CreatedBemNodes.length
-            CreatedBemNodes.push(this)
 
             // For HTML-body remove previous body tag
             if (this._tag === 'body') {
@@ -1732,7 +1743,7 @@ BemNode.prototype = {
             // Call DOM init handlers
             this._domInit()
 
-            // Compontent was rendered once at least
+            // Compontent rendered at least once
             this._renderedOnce = true
         }
 
@@ -1897,6 +1908,47 @@ BemNode.prototype = {
         //TODO: Some recursive routine here
 
         return html
+    },
+
+    /**
+     * Calls expand declaration in runtime
+     */
+    expand: function () {
+        // Replace old children
+        this.empty()
+
+        // Append new children without DOM-node creating (_isReplaceContext flag)
+        this._isReplaceContext = true
+        this.append.apply(this, arguments)
+
+        // Call expand function
+        if (this._decl && this._decl.expand) {
+            this._isExpandContext = true
+            this._decl.expand.call(this)
+            this._completeExpand()
+            this._isExpandContext = false
+        }
+
+        this._isReplaceContext = false
+
+        // Render children
+        for (var i = 0, ii = this._children.length; i < ii; i++) {
+            this._renderChildWithIndex(i)
+        }
+
+        // Call domInit function
+        if (this._decl && this._decl.domInit) {
+            this._decl.domInit.call(this)
+        }
+
+        // Call implemented domInit function
+        if (this._implementedNode &&
+            this._implementedNode._decl &&
+            this._implementedNode._decl.domInit) {
+            this._implementedNode._decl.domInit.call(this)
+        }
+
+        return this
     }
 }
 
