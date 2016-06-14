@@ -1,4 +1,4 @@
-![Beast](http://jing.yandex-team.ru/files/kovchiy/beast-red-cover-2dec.png)
+# Содержание
 
 * [Beast](#beast)
 * [BML-разметка](#bmlmarkup)
@@ -10,23 +10,15 @@
   * [Пользовательские методы](#declaration-usermethods)
 * [Итого](#declaration-final)
 * [Справочник](#ref)
-  * [BML](#ref-bml)
-    * [block](#ref-bml-block)
-    * [context](#ref-bml-context)
-    * [mix](#ref-bml-mix)
-    * [tag](#ref-bml-tag)
-    * [id](#ref-bml-id)
   * [BemNode](#ref-bemnode)
     * [isBlock](#ref-bemnode-isblock)
     * [isElem](#ref-bemnode-iselem)
     * [selector](#ref-bemnode-selector)
-    * [id](#ref-bemnode-id)
     * [parentBlock](#ref-bemnode-parentblock)
     * [parentNode](#ref-bemnode-parentnode)
     * [domNode](#ref-bemnode-domnode)
     * [defineMod](#ref-bemnode-definemod)
     * [defineParam](#ref-bemnode-defineparam)
-    * [mix](#ref-bemnode-mix)
     * [mod](#ref-bemnode-mod)
     * [toggleMod](#ref-bemnode-togglemod)
     * [param](#ref-bemnode-param)
@@ -42,12 +34,14 @@
     * [remove](#ref-bemnode-remove)
     * [append](#ref-bemnode-append)
     * [appendTo](#ref-bemnode-appendto)
+    * [prepend](#ref-bemnode-prepend)
+    * [prependTo](#ref-bemnode-prependto)
+    * [insertChild](#ref-bemnode-insertchild)
     * [replaceWith](#ref-bemnode-replacewith)
     * [implementWith](#ref-bemnode-implementwith)
     * [text](#ref-bemnode-text)
     * [elem](#ref-bemnode-elem)
     * [get](#ref-bemnode-get)
-    * [getWithContext](#ref-bemnode-getwithcontext)
     * [has](#ref-bemnode-has)
     * [afterDomInit](#ref-bemnode-afterDomInit)
     * [clone](#ref-bemnode-clone)
@@ -58,10 +52,10 @@
     * [expand](#ref-bemnode-expand)
   * [Beast.decl()](#ref-decl)
     * [inherits](#ref-decl-inherits)
+    * [abstract](#ref-decl-abstract)
     * [expand](#ref-decl-expand)
     * [mod](#ref-decl-mod)
     * [param](#ref-decl-param)
-    * [mix](#ref-decl-mix)
     * [tag](#ref-decl-tag)
     * [domAttr](#ref-decl-domattr)
     * [noElems](#ref-decl-noelems)
@@ -69,18 +63,11 @@
     * [on](#ref-decl-on)
     * [onWin](#ref-decl-onwin)
     * [onMod](#ref-decl-onmod)
-    * [onRemove](#ref-decl-onremove)
   * [Прочие методы Beast](#ref-beast)
     * [node](#ref-beast-node)
     * [onReady](#ref-beast-onready)
-* [Рецепты](#recipes)
-  * [Hello, world](#recipes-helloworld)
-  * [Стиль кода](#recipes-codestyle)
-  * [Строгое API](#recipes-api)
-  * [Взаимодействие компонент](#recipes-interaction)
-  * [Работа с CSS](#recipes-css)
-  * [Сложное развертывание](#recipes-expand)
-* [Примеры проектов](#examples)
+* [Hello, world](#helloworld)
+* [Дальнейшая работа](#more)
 
 <a name="beast"/>
 # Beast
@@ -616,67 +603,6 @@ Beast
 <a name="ref"/>
 ## СПРАВОЧНИК
 
-<a name="ref-bml"/>
-### BML
-У BML-разметки есть зарезервированные атрибуты.
-
-<a name="ref-bml-block"/>
-#### block
-Фиксирует родительский блок, чтобы складывать элементы одного блока внутрь другого.
-```js
-Beast.decl('tabs__tab', {
-    expand: function () {
-        this.append(
-            <Button>
-                <close block="{this}"/>
-            </Button>
-        )
-    },
-})
-```
-
-<a name="ref-bml-context"/>
-#### context
-По большей части служебный атрибут и проставляется автоматически. Но о наличии атрибута нужно знать хотя бы для того, чтобы его не занимать. Нужен для указания контекста создания элемента, чтобы закрепить его за блоком уже в момент создания. Например, в момент своего создания элемент close должен знать контекст, чтобы получить ссылку на родительский блок, получить полное имя `tabs__close`, найти свою декларацию и так далее.
-```js
-Beast.decl('tabs__tab', {
-    expand: function () {
-        this.append(
-            <close/> // А на самом деле <close context="{this}"/>
-        )
-    },
-})
-```
-
-<a name="ref-bml-mix"/>
-#### mix
-Дополнительные CSS-классы для DOM-элемента. Модификаторы компонента не распространяются на подмешанные классы.
-
-```xml
-<My-button mix="Button Button_type_action" State="release">Найти</My-button>
-↓
-<div mix="My-button My-button_state_release Button Button_type_action" m:state="release">Найти</div>
-```
-
-<a name="ref-bml-tag"/>
-#### tag
-Имя тега DOM-элемента.
-
-```xml
-<Link tag="a"></Link>
-↓
-<a class="link"></a>
-```
-
-<a name="ref-bml-id"/>
-#### id
-Идентификатор, который запишется и в объект компонента, и в его DOM-элемент.
-```xml
-<Link id="save"></Link>
-```
-
----
-
 <a name="ref-bemnode"/>
 ### BemNode
 
@@ -691,20 +617,6 @@ Beast.decl('tabs__tab', {
 <a name="ref-bemnode-selector"/>
 #### selector ():string
 Получить селектор элемента `block` или `block__elem`.
-
-<a name="ref-bemnode-id"/>
-#### id ([id:string]) [:string]
-Получить или назначить идентификатор компонента.
-```js
-Beast.decl('button', {
-    expand: function () {
-        this.id('save')
-        console.log(this.id) // save
-    }
-})
-↓
-<button class="button" id="save">Сохранить</button>
-```
 
 <a name="ref-bemnode-parentblock"/>
 #### parentBlock ([node:BemNode]) [:BemNode]
@@ -740,10 +652,6 @@ this.defineParam({
     maxlength:20
 })
 ```
-
-<a name="ref-bemnode-mix"/>
-#### mix (class:string...)
-Добавить CSS-класс к компоненту.
 
 <a name="ref-bemnode-mod"/>
 #### mod (modName:string, [modValue:string|boolean], [data:anything]) [:string|boolean]
@@ -957,7 +865,19 @@ Beast.decl('button', {
 
 <a name="ref-bemnode-appendto"/>
 #### appendTo (parentNode:BemNode)
-Присоединить или переместить текущий компонент к другому компоненту.
+Присоединить или переместить текущий компонент в конец списка детей другого компонента.
+
+<a name="ref-bemnode-prepend"/>
+#### prependTo (child:BemNode|string...)
+Добавить содержимое в начало списка детей.
+
+<a name="ref-bemnode-prependto"/>
+#### prependTo (parentNode:BemNode)
+Присоединить или переместить текущий компонент в начало списка детей другого компонента.
+
+<a name="ref-bemnode-insertchild"/>
+#### insertChild (child:BemNode|string|array, index)
+Вставить компонент, строку или массив по индексу.
 
 <a name="ref-bemnode-replacewith"/>
 #### replaceWith (NewBemNode:BemNode)
@@ -1071,33 +991,6 @@ Beast.decl('head', {
 })
 ```
 
-<a name="ref-bemnode-getwithcontext"/>
-#### getWithContext (path:string...) :array
-Вариация метода `get()` с сохранением контекста текущего блока.
-
-```xml
-<Browser>
-    <tabs>...</tabs>
-<Browser>
-```
-
-```js
-Beast.decl('browser', {
-    expand: function () {
-        this.append(
-                <Head>{this.getWithContext('tabs')}</Head>
-            )
-    }
-})
-```
-```xml
-<div class="browser">
-    <div class="head">
-        <div class="browser__tabs">...</div>
-    </div>
-</div>
-```
-
 <a name="ref-bemnode-has"/>
 #### has (path:string...) :boolean
 Вариация метода `get()`. Проверяет наличие дочерних компонент по селектору.
@@ -1203,6 +1096,19 @@ Beast.decl('browser-tabs', {
 })
 ```
 
+<a name="ref-decl-abstract"/>
+#### abstract
+Объявляет декларацию абстрактной — это значит, что при наследовании ее селектор не попадет в классы DOM-узла. Такие декларации служат лишь для описания общего поведения.
+
+```js
+Beast.decl('Locale', {
+    abstract:true,
+    string: function () {
+        ...
+    }
+})
+```
+
 <a name="ref-decl-expand"/>
 #### expand
 Контекст развертки компонента.
@@ -1218,7 +1124,7 @@ Beast.decl('browser', {
 })
 ```
 
-Поля деклараций, описываемые ниже: mod, param, tag, mix — компилируется в методы, исполняемые в этом самом контексте.
+Поля деклараций, описываемые ниже: mod, param, tag — компилируется в методы, исполняемые в этом самом контексте.
 
 ```js
 Beast.decl('browser', {
@@ -1257,16 +1163,6 @@ Beast.decl('button', {
         href:'',
         maxlength:20
     }
-})
-```
-
-<a name="ref-decl-mix"/>
-#### mix
-Декларативная форма метода BemNode::mix().
-
-```js
-Beast.decl('button', {
-    mix: 'label' | ['label', 'control']
 })
 ```
 
@@ -1377,10 +1273,6 @@ Beast.decl('tabs__tab', {
 })
 ```
 
-<a name="ref-decl-onremove"/>
-#### onRemove(callback:function)
-Деструктор компонента — последние операции перед удалением.
-
 <a name="ref-beast"/>
 ### Прочие методы Beast
 
@@ -1404,12 +1296,8 @@ Beast.node('Button', {'Size':'M', 'href':'#foo'}, 'Перейти')
 
 ![](http://jing.yandex-team.ru/files/kovchiy/ME3050275885_2.jpg)
 
-<a name="recipes"/>
-## РЕЦЕПТЫ
-После теоретической вводной и справочника могли остатся вопросы практического характера. Эта часть попытается их закрыть.
-
-<a name="recipes-helloworld"/>
-### Hello, world
+<a name="helloworld"/>
+## Hello, world
 
 Чтобы запустить элементарный проект, к html-странице нужно подключить файл библиотеки `/src/beast-min.js`, подключить js-декларации блоков, CSS-стили и составить семантическое дерево интерфейса:
 
@@ -1450,363 +1338,9 @@ Beast.node('Button', {'Size':'M', 'href':'#foo'}, 'Перейти')
 
 Теги `html` и `head` писать необязательно. И следует помнить об атрибуте `type="bml"` для тегов `script` и `link`; в первом случае он сообщит Beast, что нужна прекомпиляция кода, а во втором еще и подгрузка самого файла. Политика безопасности браузеров не позволяет получать доступ к содержимому, загруженному через `<script src="...">` — поэтому используется универсальный тег `<link>`.
 
-<a name="recipes-codestyle"/>
-### Стиль кода
-Методы класса BemNode, если не возвращают какое-то значение, возвращают ссылку на свой объект — так вызовы собираются в лаконичные цепочки ([chaining](https://en.wikipedia.org/wiki/Method_chaining)).
+<a name="more"/>
+## Дальнейшая работа
 
-```js
-Beast.decl('tabs__tab', {
-    expand: function () {
-        this.mod('state', 'releast')
-            .param('url', this.text())
-            .append(
-                this.text().replace(/^https?:\/\/(www\.)?/gi, ''),
-                <close/>
-            )
-    }
-})
-```
+Практические советы, механизмы оптимальной организации сложных связей между компонентами, принятый codestyle, разработка проекта с чистого листа — всё это описывает учебник [Beast Practice](https://github.yandex-team.ru/kovchiy/beast-practice/blob/master/README.md). 
 
-Если для метода существует декларация, использовать следует именно ее — ради единообразия и наглядности:
-
-```js
-Beast.decl('button', {
-    mod: {
-        state: 'release',
-        theme: 'normal'
-    },
-    mix:'link'
-})
-```
-
-вместо
-
-```js
-Beast.decl('button', {
-    expand: function () {
-        this.defineMod({
-                state:'release',
-                theme:'normal'
-            })
-            .mix('link')
-    }
-})
-```
-
-<a name="recipes-api"/>
-### Строгое API компонента
-
-Декларация позволяет однозначно и наглядно описывать все аспекты поведения компонента, в том числе и структуру входных данных и возможные значения модификаторов. Не для всех компонент может прилагаться документация с примерами, поэтому строгое API может служить ее частичным заменителем.
-
-Следует перечислять модификаторы и их значения по умолчанию в декларации:
-
-```js
-Beast.decl('button', {
-    mod: {
-        state: 'release',
-        theme: 'normal'
-    }
-})
-```
-
-То же самое с разверткой: желательно явно указывать какие компоненты и в каком порядке готов принимать в себя блок. Не стоит никогда полагаться на порядок входных данных.
-
-```js
-Beast.decl('letter', {
-    expand: function () {
-        this.append(
-                this.get('title'),
-                this.get('from'),
-                this.get('to'),
-                this.get('text')
-            )
-    }
-})
-```
-
-Если известен состав, но порядок не важен, это тоже следует указать:
-
-```js
-Beast.decl('article', {
-    expand: function () {
-        this.append(
-                this.get('text', 'image')
-            )
-    }
-})
-```
-
-Принятие в себя чего угодно в любом порядке должно быть оправдано сутью компонента.
-
-```js
-Beast.decl('article__custom-part', {
-    expand: function () {
-        this.append(
-                this.get()
-            )
-    }
-})
-```
-
-<a name="recipes-interaction"/>
-### Взаимодействие компонент
-
-Код современных сложных веб-придожений на 90% состоит из описания взаимодействий компонентов интерфейса. Чтобы сложность поддержки такого кода не росла экспоненциально с добавлением новых взаимодействий, Beast предусматривает следующие механики:
-* Связь блок-элемент
-* Имплементация
-* Общая шина событий
-* Связь один ко многим
-
-##### Связь блок-элемент
-
-Блок имеет прямой доступ к элементам, а элементы к блоку. Например, по клику на опцию в радиогруппу передается событие, по которому та устанавливает модификаторы всем опциям.
-
-```js
-Beast
-.decl('radiogroup', {
-    on: {
-        change: function (e, option) {
-            var options = this.get('option')
-            for (var i = 0; i < options.length; i++) {
-                if (options[i] === option) {
-                    options[i].mod('state', 'selected')
-                } else {
-                    options[i].mod('state', 'release')
-                }
-            }
-        }
-    }
-})
-.decl('radiogroup__option', {
-    on: {
-        click: function () {
-            this.parentBlock().trigger('change', this)
-        }
-    }
-})
-```
-
-##### Имплементация
-
-Подробно ее механизм разобран в справке метода `BemNode.implementWith()`. Еще раз коротко: это способ повесить на блок поведение элемента. Например, в блоке `Radiogroup` элемент `option` можно реализовать через независимый блок кнопки:
-
-```js
-.decl('radiogroup__option', {
-    expand: function () {
-        this.implementWith(
-                <Button>{this.text()}</Button>
-            )
-    },
-    on: {
-        click: function () {
-            this.parentBlock().trigger('change', this)
-        }
-    }
-})
-```
-
-Тогда это нужно учесть в родительском блоке:
-```js
-.decl('radiogroup', {
-    on: {
-        change: function (e, option) {
-            var options = this.get('Button')
-            for (var i = 0; i < options.length; i++) {
-                if (options[i] === option) {
-                    options[i].mod('state', 'selected')
-                } else {
-                    options[i].mod('state', 'release')
-                }
-            }
-        }
-    }
-})
-```
-
-Само собой, кнопка должна научиться правильно отображать модификатор `state` (другими словами, западать).
-
-##### Общая шина событий
-
-Шина выступает посредником между объектом и субъектом взаимодействия. Роль шины играют DOM-события системного объекта window. Объект выбрасывает события на шину события в своем пространстве имен, а субъект может их слушать. Гарантированная ссылка на объект-посредник избавляет субъекта от проверок наличия и расположение объекта, генерирующего события.
-
-```xml
-<Form>
-    ...
-    <submit/>
-</Form>
-...
-<Notification></Notification>
-```
-
-```js
-Beast.decl('form__submit', {
-    on: {
-        click: function () {
-            this.triggerWin('submit')
-        }
-    }
-})
-
-Beast.decl('notification', {
-    onWin: {
-        'form:submit': function () {
-            console.log('Form submit')
-        }
-    }
-})
-```
-
-Элемент блока `Form` отдает общей шине сигнал о том, что данные отправились. На этот сигнал реагирует блок `Notification`, который никак не связан с `Form`, но знает о возможности такого сообщения в принципе.
-
-##### Связь один ко многим
-
-Подробно механизм описан в документации метода `Beast.findNodes()`. Однако, это крайние меры — подход рождает обилие неявных связей, которые не закреплены ни в системе событий, ни в иерархии компонент. Подходит только к компонентам, суть которых в том и состоит, чтобы вступать в непредсказуемые связи с другими компонентами. Обычно это модальные окна, всплывающие подсказки и прочие блоки, чьё поведение зависит от неограниченного множества раздражителей: по наведению на любую ссылку, по нажатию на закопанные в разных местах кнопки.
-
-Показывать модальное окно по клику на компонент с селектором триггера, а прятать по клику за пределами окна:
-
-```js
-.decl('modal', {
-    domInit: function () {
-        var targets = Beast.findNodes(this.param('target'))
-        for (var i = 0; i < targets.length; i++) {
-            targets[i].on(click, this.show.bind(this))
-        }
-    },
-    onWin: {
-        click: function () {
-            this.close()
-        }
-    },
-    on: {
-        click: function (e) {
-            e.stopPropagation()
-        }
-    },
-    show: function () {...},
-    close: function () {...}
-})
-```
-
-<a name="recipes-css"/>
-### Работа с CSS
-
-Напрямую не относится к работе с инструментом, но с этим все равно придется регулярно сталкиваться: CSS и JS работают в связке. Препроцессоры (less, stylus) позволяют уменьшать количество повторяющегося кода, вложенностями подчеркивать структуру и выносить общие знаменатели за скобку (в константы).
-
-Как облегчить себе жизнь:
-* Селекторы модификаторов и элементов преобразовывать во вложенности.
-* Повторяющиеся значения либо близкие значения выносить в переменные.
-* Анимации в JS заменять на transitions в CSS — это и меньше нагружает процессор, и позволяет управлять изменением стилей из единого места; кроме того, для анимаций в JS придется подключать дополнительную библиотеку, без которой пока удавалось справляться.
-* Изменения стилей следует по возможности связывать с измененеим модификатора, чтобы JS-код состоял в основном из переключения модификаторов компонент по разным событиям, а в CSS уже содержались все подробности, которые стоят за тем или иным модификатором — разделение логики от частностей реализации.
-
-```less
-.Tabs {
-    color:@color-text;
-    &__tab {
-        transition: background .2s ease-in-out;
-        &_state {
-            &_release {
-                background:rgba(0,0,0,0);
-            }
-            &_active {
-                background:rgba(0,0,0,.2);
-            }
-        }
-    }
-}
-```
-
-<a name="recipes-expand"/>
-### Сложное развертывание
-
-Методология не ограничивает от перекрестных вложенностей: элемент одного блока иерархически может принадлежать другому блоку. Например, Блок ссылки может окутывать чужие элементы, делая их активными, но не делая своими:
-
-```js
-Beast
-.decl('tabs__tab', {
-    expand: function () {
-        this.append(
-            <Link>{this.getWithContext()}</Link>
-        )
-    }
-})
-```
-
-Теоретически, то же самое можно сделать через наследование:
-
-```js
-Beast.decl('tabs__tab', {inherits:'link'})
-```
-
-Иногда нужно создать элемент внутри другого блока, не принадлежащий ему:
-
-```js
-Beast
-.decl('tabs__tab', {
-    expand: function () {
-        this.append(
-            <Link>
-                {this.text()}
-                <close block="{this}"/>
-            </Link>
-        )
-    }
-})
-```
-
-Можно вообще запретить блоку иметь дочерние элементы таким вот способом:
-
-```js
-Beast.decl('Link', {noElems:true})
-```
-
-Роль элементов зачастую играют дочерние блоки. Например, у блока модального окна обе кнопки «ОК» и «Отмена» с одной стороны являются элементами, с другой реализуются независимыми блоками кнопок. Как можно развернуть элемент до блока и назначить ему нужное поведение:
-
-```js
-Beast
-.decl('modal', {
-    expand: function () {
-        this.append(
-                <content>{this.get()}</content>,
-                <cancel/>,
-                <submit/>
-            )
-    },
-    close: function () {...},
-    submit: function () {
-        ...
-        this.close()
-    },
-    cancel: function () {
-        ...
-        this.close()
-    }
-})
-.decl('modal__submit', {
-    expand: function () {
-        this.implementWith(
-                <Button>OK</Button>
-            )
-    },
-    on: function () {
-        this.parentBlock().submit()
-    }
-})
-.decl('modal__cancel', {
-    expand: function () {
-        this.implementWith(
-                <Button>Отмена</Button>
-            )
-    },
-    on: function () {
-        this.parentBlock().cancel()
-    }
-})
-
-```
-
-<a name="examples"/>
-## Примеры проектов
-- https://github.yandex-team.ru/kovchiy/mediahome — проба пера: морда + поиск
-- https://github.yandex-team.ru/kovchiy/kinopoisk — адаптивный интерфейс (блок grid)
-- https://github.yandex-team.ru/kovchiy/searchapp — прекомпиляция Beast на сервере
-
+Welcome home, good hunter.
