@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.16.0
+ * @version 0.23.9
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -9,12 +9,26 @@
 ;(function () {
 
 if (typeof window !== 'undefined') {
+
+    // Polyfill for window.CustomEvent in IE
+    if (typeof window.CustomEvent !== 'function') {
+        window.CustomEvent = function (event, params) {
+            params = params || {bubbles: false, cancelable: false, detail: undefined}
+            var e = document.createEvent('CustomEvent')
+            e.initCustomEvent(event, params.bubbles, params.cancelable, params.detail)
+            return e
+        }
+        window.CustomEvent.prototype = window.Event.prototype
+    }
+
     window.Beast = {}
     document.addEventListener('DOMContentLoaded', function () {
         Beast.init()
     })
+
 } else {
     global.Beast = {}
+    module.exports = Beast
 }
 
 /*
@@ -26,30 +40,35 @@ var HttpRequestQueue = []            // Queue of required bml-files with link ta
 var CssLinksToLoad = 0               // Num of <link rel="stylesheet"> in the <head>
 var BeastIsReady = false             // If all styles and scripts are loaded
 var OnBeastReadyCallbacks = []       // Functions to call when sources are ready
-var ReStartBML = /<[a-z][^>]+\/?>/i  // Regular expression matches start of BML substring
-var ReComment = /<!--[^]*-->/g       // Regular expression matches XML comments
+var ReStartBML = /<[a-z][^>]+\/?>/i  // matches start of BML substring
+var ReDoubleQuote = /"/g             // matches "-symbols
+var ReBackslash = /\\/g              // matches \-symbols
+var ReLessThen = /</g                // matches <-symbols
+var ReMoreThen = />/g                // matches >-symbols
+var ReCamelCase = /([a-z])([A-Z])/g  // matches camelCase pairs
+var ReStylePairSplit = /:\s?/        // matches :-separation in style DOM-attribute
 
 // Declaration properties that can't belong to user
 var ReservedDeclarationProperies = {
     inherits:1,
     expand:1,
     mod:1,
+    mix:1,
     param:1,
     domInit:1,
     domAttr:1,
-    mix:1,
     on:1,
     onWin:1,
     onMod:1,
-    onRemove:1,
     tag:1,
     noElems:1,
 
     // 2 means not to inherit this field
-    userMethods:2,
-    commonExpand:2,
-    commonDomInit:2,
-    flattenInherits:2,
+    abstract:2,
+    __userMethods:2,
+    __commonExpand:2,
+    __commonDomInit:2,
+    __flattenInherits:2,
 }
 
 // CSS-properties measured in px commonly
@@ -61,8 +80,77 @@ var CssPxProperty = {
     bottom:1,
     top:1,
     'line-height':1,
-    'font-size':1
+    'font-size':1,
 }
+
+// Single HTML-tags
+var SingleTag = {
+    area:1,
+    base:1,
+    br:1,
+    col:1,
+    command:1,
+    embed:1,
+    hr:1,
+    img:1,
+    input:1,
+    keygen:1,
+    link:1,
+    meta:1,
+    param:1,
+    source:1,
+    wbr:1,
+}
+
+// Text output helpers
+function escapeDoubleQuotes (string) {
+    return string.replace(ReBackslash, '\\\\').replace(ReDoubleQuote, '\\"')
+}
+function escapeHtmlTags (string) {
+    return string.replace(ReLessThen, '&lt;').replace(ReMoreThen, '&gt;')
+}
+function camelCaseToDash (string) {
+    return string.replace(ReCamelCase, '$1-$2').toLowerCase()
+}
+function stringifyObject (ctx) {
+    if (Array.isArray(ctx)) {
+        var string = '['
+        for (var i = 0, ii = ctx.length; i < ii; i++) {
+            string += stringifyObject(ctx[i]) + ','
+        }
+        string = string.slice(0,-1)
+        string += ']'
+        return string
+    }
+    else if (typeof ctx === 'object') {
+        var string = '{'
+        for (var key in ctx) {
+            if (typeof ctx[key] !== 'undefined') {
+                string += '"' + key + '":' + stringifyObject(ctx[key]) + ','
+            }
+        }
+        string = string.slice(0,-1)
+        string += '}'
+        return string
+    }
+    else if (typeof ctx === 'string') {
+        return '"' + escapeDoubleQuotes(ctx) + '"'
+    }
+    else if (typeof ctx === 'function' && typeof ctx.beastDeclPath !== 'undefined') {
+        return ctx.beastDeclPath
+    } else {
+        return ctx.toString()
+    }
+}
+function objectIsEmpty (object) {
+    for (var key in object) return false
+    return true
+}
+
+/**
+ * Public Beast properties
+ */
+Beast.declaration = Declaration
 
 /**
  * Initialize Beast
@@ -98,7 +186,7 @@ Beast.init = function () {
  * @url string Path to script file
  */
 function RequireModule (url) {
-    var xhr = new XMLHttpRequest()
+    var xhr = new (XMLHttpRequest || ActiveXObject)('MSXML2.XMLHTTP.3.0')
     xhr.open('GET', url)
     xhr.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
@@ -178,6 +266,142 @@ function EvalBml (text) {
     eval(parsedText)
 }
 
+/**
+ * Initialize DOM: assign DOM-nodes to BemNodes
+ * @domNode DOMElement Node to start with
+ */
+Beast.domInit = function (domNode, isInnerCall) {
+
+    if (typeof domNode === 'undefined') {
+        return false
+    }
+
+    // ELEMENT_NODE
+    else if (domNode.nodeType === 1) {
+        var className = domNode.className
+
+        if (className) {
+
+            // Assign name
+            var selector = className.split(' ')[0]
+            var indexOf__ = selector.indexOf('__')
+            var name
+
+            if (indexOf__ === -1) {
+                name = selector[0].toUpperCase() + selector.substr(1)
+            } else {
+                name = selector.substr(indexOf__ + 2)
+            }
+
+            var bemNode = Beast.node(name)
+
+            // Assign attributes
+            for (var i = 0, ii = domNode.attributes.length, name, value; i < ii; i++) {
+                name = domNode.attributes[i].name
+                value = domNode.attributes[i].value
+
+                // Parse style to css object
+                if (name === 'style') {
+                    var stylePairs = value.split(';')
+                    for (var j = 0, jj = stylePairs.length, stylePair; j < jj; j++) {
+                        stylePair = stylePairs[j].split(ReStylePairSplit)
+                        bemNode.css(stylePair[0], stylePair[1])
+                    }
+                }
+                // Restore encoded objects
+                else if (name === 'data-event-handlers') {
+                    eval('bemNode._domNodeEventHandlers = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-mod-handlers') {
+                    eval('bemNode._modHandlers = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-mod') {
+                    eval('bemNode._mod = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-param') {
+                    eval('bemNode._param = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-mix') {
+                    eval('bemNode._mix = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-after-dom-init-handlers') {
+                    eval('bemNode._afterDomInitHandlers = ' + decodeURIComponent(value))
+                }
+                else if (name === 'data-implemented-node-name') {
+                    bemNode._implementedNode = Beast.node(value)
+                }
+                // Else _domAttr
+                else if (name !== 'class') {
+                    bemNode.domAttr(name, value)
+                }
+            }
+
+            domNode.removeAttribute('data-event-handlers')
+            domNode.removeAttribute('data-mod-handlers')
+            domNode.removeAttribute('data-mod')
+            domNode.removeAttribute('data-param')
+            domNode.removeAttribute('data-mix')
+            domNode.removeAttribute('data-after-dom-init-handlers')
+            domNode.removeAttribute('data-implemented-node-name')
+
+            // Assign children
+            for (var i = 0, ii = domNode.childNodes.length, childNode; i < ii; i++) {
+                childNode = Beast.domInit(domNode.childNodes[i], true)
+
+                if (childNode instanceof BemNode) {
+                    if (childNode._implementedNode) {
+                        var childDomNode = childNode._domNode
+                        childNode._domNode = null
+                        bemNode.append(childNode._implementedNode)
+                        childNode._implementedNode.implementWith(childNode, true)
+                        childNode._domNode = childDomNode
+                    } else {
+                        bemNode.append(childNode)
+                    }
+
+                    childNode._renderedOnce = true
+                } else {
+                    bemNode.append(childNode)
+                }
+            }
+
+            // Assign flags
+            if (!isInnerCall) {
+                bemNode._renderedOnce = true
+            }
+            bemNode._isExpanded = true
+
+            // Crosslink
+            bemNode._domNode = domNode
+            domNode.bemNode = bemNode
+
+            // Add event handlers
+            if (bemNode._domNodeEventHandlers !== null) {
+                for (var eventName in bemNode._domNodeEventHandlers) {
+                    for (var i = 0, ii = bemNode._domNodeEventHandlers[eventName].length; i < ii; i++) {
+                        bemNode.on(eventName, bemNode._domNodeEventHandlers[eventName][i], true)
+                    }
+                }
+            }
+
+            // Call mod handlers
+            for (var name in bemNode._mod) {
+                bemNode._callModHandlers(name, bemNode._mod[name])
+            }
+
+            bemNode._domInit()
+
+            return bemNode
+        }
+    }
+
+    // TEXT_NODE
+    else if (domNode.nodeType === 3) {
+        return domNode.nodeValue
+    }
+
+    return false
+}
 
 /**
  * Declaration standart fields:
@@ -187,7 +411,6 @@ function EvalBml (text) {
  * - noElems  object       If block can have elements
  * - param    object       Default parameters
  * - domInit  function     DOM inititial instructions
- * - mix      string|array Additional CSS-classes
  * - on       object       Event handlers
  * - onWin    object       Window event hadnlers
  * - onMod    object       Modifier change actions
@@ -200,13 +423,24 @@ Beast.decl = function (selector, decl) {
     if (typeof selector === 'object') {
         for (var key in selector) Beast.decl(key, selector[key])
         return this
+    } else {
+        selector = selector.toLowerCase()
     }
-    if (decl.inherits && typeof decl.inherits === 'string') {
+
+    if (typeof decl.inherits === 'string') {
         decl.inherits = [decl.inherits]
     }
-    if (decl.mix && typeof decl.mix === 'string') {
+
+    if (typeof decl.mix === 'string') {
         decl.mix = [decl.mix]
     }
+
+    if (decl.inherits) {
+        for (var i = 0, ii = decl.inherits.length; i < ii; i++) {
+            decl.inherits[i] = decl.inherits[i].toLowerCase()
+        }
+    }
+
     if (typeof Declaration[selector] !== 'undefined') {
         var oldDecl = Declaration[selector]
         for (var item in oldDecl) {
@@ -258,7 +492,7 @@ function CompileDeclarations () {
                         // Imitate inherited decl context for inner inherited() calls
                         var temp = this._decl
                         this._decl = inheritedDecl
-                        inheritedFn.call(this)
+                        inheritedFn.apply(this, arguments)
                         this._decl = temp
                     }
                 })(obj[key], extObj[key], extObj)
@@ -305,7 +539,7 @@ function CompileDeclarations () {
         // Extend decl with inherited rules
         if (decl.inherits) {
             var flattenInherits = inherit(decl, decl.inherits)
-            decl.flattenInherits = flattenInherits
+            decl.__flattenInherits = flattenInherits
         }
 
         // Compile expand rules to methods array
@@ -318,19 +552,14 @@ function CompileDeclarations () {
                 this.defineParam(decl.param)
             })
         }
-        if (decl.mix) {
-            expandHandlers.unshift(function () {
-                this.mix.apply(this, decl.mix)
-            })
-        }
-        if (flattenInherits) {
-            expandHandlers.unshift(function () {
-                this.mix.apply(this, flattenInherits)
-            })
-        }
         if (decl.mod) {
             expandHandlers.unshift(function () {
                 this.defineMod(decl.mod)
+            })
+        }
+        if (decl.mix) {
+            expandHandlers.unshift(function () {
+                this.mix.apply(this, decl.mix)
             })
         }
         if (decl.tag) {
@@ -340,7 +569,7 @@ function CompileDeclarations () {
         }
         if (decl.noElems) {
             expandHandlers.unshift(function () {
-                this.noElems(decl.noElems)
+                this.noElems()
             })
         }
         if (decl.domAttr) {
@@ -352,7 +581,7 @@ function CompileDeclarations () {
             expandHandlers.unshift(function () {
                 for (var modName in decl.onMod) {
                     for (var modValue in decl.onMod[modName]) {
-                        this.onMod(modName, modValue, decl.onMod[modName][modValue])
+                        this.onMod(modName, modValue, decl.onMod[modName][modValue], true)
                     }
                 }
             })
@@ -378,20 +607,15 @@ function CompileDeclarations () {
             })
         }
 
-        // Compile destructor
-        if (typeof decl.onRemove === 'undefined') {
-            decl.onRemove = function () {}
-        }
-
         // Compile common handlers
-        compileCommonHandler('commonExpand', expandHandlers, decl)
-        compileCommonHandler('commonDomInit', domInitHandlers, decl)
+        compileCommonHandler('__commonExpand', expandHandlers, decl)
+        compileCommonHandler('__commonDomInit', domInitHandlers, decl)
 
         // Extract user methods
-        decl.userMethods = {}
+        decl.__userMethods = {}
         for (var key in decl) {
             if (ReservedDeclarationProperies[key] !== 1) {
-                decl.userMethods[key] = decl[key]
+                decl.__userMethods[key] = decl[key]
             }
         }
 
@@ -425,10 +649,26 @@ Beast.onReady = function (callback) {
  * @return string Parsed text
  */
 Beast.parseBML = function (text) {
+
+    // Remove XML-comments
+    var startCommentIndex
+    var endCommentIndex
+    do {
+        startCommentIndex = text.indexOf('<!--')
+        if (startCommentIndex === -1) break
+
+        endCommentIndex = text.indexOf('-->')
+        if (endCommentIndex === -1) break
+
+        if (startCommentIndex < endCommentIndex) {
+            text = text.substr(0,startCommentIndex) + text.substr(endCommentIndex + 3)
+        } else {
+            break
+        }
+    } while (true)
+
+    // Replace XML-tags with JS-functions
     var startParams
-
-    text = text.replace(ReComment, '')
-
     do {
         startParams = ReStartBML.exec(text)
 
@@ -630,7 +870,7 @@ function ParseBMLNode (text, single, isRoot) {
     var parsed = ParseNameAndAttrOfBMLNode(text)
 
     if (isRoot) {
-        parsed.attr += (parsed.attr === '' ? '' : ',') + "'context':this"
+        parsed.attr += (parsed.attr === '' ? '' : ',') + "'__context':this"
     }
 
     if (parsed.attr === '') {
@@ -714,38 +954,38 @@ function ParseNameAndAttrOfBMLNode (text) {
  * @children array  Child nodes
  */
 var BemNode = function (nodeName, attr, children) {
-    this._name = ''                 // BEM-name: 'block' or 'block__elem'
-    this._nodeName = nodeName       // BML-node name
-    this._attr = attr || {}         // BML-node attributes
-    this._isBlock = false           // flag if node is block
-    this._isElem = false            // flag if node is elem
-    this._mod = {}                  // modifiers list
-    this._modHandlers = {}          // handlers on modifiers change
-    this._param = {}                // parameters list
-    this._domNode = null            // DOM-node reference
-    this._domAttr = {}              // DOM-attributes
-    this._domClasses = null         // DOM-classes
-    this._afterDomInitHandlers = [] // Handlers called after DOM-node inited
-    this._domInited = false         // Flag if DOM-node inited
-    this._parentBlock = null        // parent block bemNode reference
-    this._forcedParentBlock = false // flag if parentBlock was set manualy with block param
-    this._parentNode = null         // parent bemNode reference
-    this._prevParentNode = null     // previous parent node value when parent node redefined
-    this._children = []             // list of children
-    this._expandedChildren = null   // list of expanded children (for expand method purposes)
-    this._isExpanded = false        // if Bem-node was expanded
-    this._isExpandContext = false   // when flag is true append modifies expandedChildren
-    this._isReplaceContext = false  // when flag is true append don't renders children's DOM
-    this._mix = []                  // list of additional CSS-classes
-    this._tag = 'div'               // DOM-node name
-    this._id = ''                   // Node identifier
-    this._noElems = false           // Flag if block can have children
-    this._implementedNode = null    // Node wich this node implements
-    this._css = {}                  // css properties
-    this._decl = null               // declaration for component
-    this._kindOf = []               // inherited declaration selectors including itself for component
-    this._renderedOnce = false      // flag if component was rendered at least once
-    this._elems = []                // array of elements (for block only)
+    this._selector = ''                // BEM-name: 'block' or 'block__elem'
+    this._nodeName = nodeName          // BML-node name
+    this._attr = attr || {}            // BML-node attributes
+    this._isBlock = false              // flag if node is block
+    this._isElem = false               // flag if node is elem
+    this._mod = {}                     // modifiers list
+    this._modHandlers = null           // handlers on modifiers change
+    this._param = {}                   // parameters list
+    this._domNode = null               // DOM-node reference
+    this._domAttr = {}                 // DOM-attributes
+    this._domNodeEventHandlers = null  // DOM-event handlers binded before DOM-node creation
+    this._afterDomInitHandlers = []    // Handlers called after DOM-node inited
+    this._domInited = false            // Flag if DOM-node inited
+    this._parentBlock = null           // parent block bemNode reference
+    this._parentNode = null            // parent bemNode reference
+    this._prevParentNode = null        // previous parent node value when parent node redefined
+    this._children = []                // list of children
+    this._expandedChildren = null      // list of expanded children (for expand method purposes)
+    this._isExpanded = false           // if Bem-node was expanded
+    this._isExpandContext = false      // when flag is true append modifies expandedChildren
+    this._isReplaceContext = false     // when flag is true append don't renders children's DOM
+    this._mix = []                     // list of additional CSS-classes
+    this._tag = 'div'                  // DOM-node name
+    this._noElems = false              // Flag if block can have children
+    this._implementedNode = null       // Node wich this node implements
+    this._css = {}                     // css properties
+    this._decl = null                  // declaration for component
+    this._flattenInherits = null       // array of flattened inherited declarations
+    this._flattenInheritsForDom = null // array of inherited declarations to add as DOM-classes
+    this._renderedOnce = false         // flag if component was rendered at least once
+    this._elems = []                   // array of elements (for block only)
+    this._onWinHandlers = null         // array of pairs: winEventName, handler (for window.removeEventListener)
 
     // Define if block or elem
     var firstLetter = nodeName.substr(0,1)
@@ -753,30 +993,28 @@ var BemNode = function (nodeName, attr, children) {
     this._isElem = !this._isBlock
 
     if (this._isBlock) {
-        this._name = nodeName.toLowerCase()
-        this._decl = Declaration[this._name]
+        // this._selector = nodeName.toLowerCase()
+        // this._decl = Declaration[this._selector]
+        // this._flattenInherits = this._decl && this._decl.__flattenInherits // in case of temporary _decl change
+        // this._parentBlock = this
+        // this._defineUserMethods()
         this._parentBlock = this
-        this._defineUserMethods()
+        this._defineDeclarationBySelector(nodeName.toLowerCase())
     }
 
     // Define mods, params and special params
     for (var key in this._attr) {
         var firstLetter = key.substr(0,1)
-        if (firstLetter === firstLetter.toUpperCase()) {
+        if (key === '__context') {
+            if (this._parentBlock === null) {
+                this.parentBlock(this._attr.__context)
+            }
+        } else if (firstLetter === firstLetter.toUpperCase()) {
             this._mod[key.toLowerCase()] = this._attr[key]
-        } else if (key === 'mix') {
-            this._mix = this._attr.mix.split(' ')
-        } else if (key === 'context' && !this._parentBlock) {
-            this.parentBlock(this._attr.context)
-        } else if (key === 'block') {
-            this.parentBlock(this._attr.block, true)
-            this._forcedParentBlock = true
         } else if (key === 'tag') {
             this._tag = this._attr.tag
-        } else if (key === 'id') {
-            this._id = this._attr.id
         } else {
-            this._param[key] = this._attr[key]
+            this._param[key.toLowerCase()] = this._attr[key]
         }
     }
 
@@ -787,13 +1025,36 @@ var BemNode = function (nodeName, attr, children) {
 BemNode.prototype = {
 
     /**
+     * Defines declaraion
+     */
+    _defineDeclarationBySelector: function (selector) {
+        this._selector = selector
+        this._decl = Declaration[this._selector]
+        this._flattenInherits = this._decl && this._decl.__flattenInherits // in case of temporary _decl change
+
+        if (this._flattenInherits) {
+            for (var i = 0, ii = this._flattenInherits.length, decl; i < ii; i++) {
+                decl = Declaration[this._flattenInherits[i]]
+                if (!decl || !decl.abstract) {
+                    if (this._flattenInheritsForDom === null) {
+                        this._flattenInheritsForDom = []
+                    }
+                    this._flattenInheritsForDom.push(this._flattenInherits[i])
+                }
+            }
+        }
+
+        this._defineUserMethods()
+    },
+
+    /**
      * Defines user's methods
      */
     _defineUserMethods: function (selector) {
-        var decl = selector ? Declaration[selector] : this._decl
+        var decl = typeof selector !== 'undefined' ? Declaration[selector] : this._decl
         if (decl) {
-            for (var methodName in decl.userMethods) {
-                this[methodName] = decl.userMethods[methodName]
+            for (var methodName in decl.__userMethods) {
+                this[methodName] = decl.__userMethods[methodName]
             }
         }
     },
@@ -802,8 +1063,8 @@ BemNode.prototype = {
      * Clears user's methods
      */
     _clearUserMethods: function () {
-        if (this._name === '' || !Declaration[this._name]) return
-        var userMethods = Declaration[this._name].userMethods
+        if (this._selector === '' || !Declaration[this._selector]) return
+        var userMethods = Declaration[this._selector].__userMethods
         for (var methodName in userMethods) {
             this[methodName] = null
         }
@@ -816,7 +1077,10 @@ BemNode.prototype = {
      */
     inherited: function (caller) {
         if (caller && typeof caller._inheritedDeclFunction !== 'undefined') {
-            caller._inheritedDeclFunction.call(this)
+            caller._inheritedDeclFunction.apply(
+                this,
+                Array.prototype.splice.call(arguments, 1)
+            )
         }
 
         return this
@@ -829,10 +1093,11 @@ BemNode.prototype = {
      * @return boolean
      */
     isKindOf: function (selector) {
-        var isKindOfSelector = this._name === selector
+        selector = selector.toLowerCase()
+        var isKindOfSelector = this._selector === selector
 
-        if (!isKindOfSelector && this._decl && this._decl.flattenInherits) {
-            isKindOfSelector = this._decl.flattenInherits.indexOf(selector) > -1
+        if (!isKindOfSelector && this._flattenInherits) {
+            isKindOfSelector = this._flattenInherits.indexOf(selector) > -1
         }
 
         return isKindOfSelector
@@ -862,24 +1127,7 @@ BemNode.prototype = {
      * @return string
      */
     selector: function () {
-        return this._name
-    },
-
-    /**
-     * Gets or sets node's identifier
-     *
-     * @return string
-     */
-    id: function (id) {
-        if (typeof id === 'undefined') {
-            return this._id
-        } else {
-            this._id = id
-            if (this._domNode) {
-                this._domNode.id = id
-            }
-            return this
-        }
+        return this._selector
     },
 
     /**
@@ -929,13 +1177,17 @@ BemNode.prototype = {
     },
 
     /**
-     * Sets _noElems flag
-     *
-     * @value  boolean
+     * Sets _noElems flag true
      */
-    noElems: function (value) {
-        this._noElems = value
-        this._setParentBlockForChildren(this, this._parentBlock._parentNode)
+    noElems: function () {
+        this._noElems = true
+
+        var parentOfParentBlock = this._parentBlock._parentNode
+        while (parentOfParentBlock._noElems === true) {
+            parentOfParentBlock = parentOfParentBlock._parentBlock._parentNode
+        }
+        this._setParentBlockForChildren(this, parentOfParentBlock)
+
         return this
     },
 
@@ -951,8 +1203,7 @@ BemNode.prototype = {
         if (bemNode) {
             if (this._isElem
                 && bemNode instanceof BemNode
-                && bemNode !== this._parentBlock
-                && !this._forcedParentBlock) {
+                && bemNode !== this._parentBlock) {
 
                 if (bemNode._parentBlock && bemNode._parentBlock._noElems) {
                     return this.parentBlock(bemNode._parentNode, dontAffectChildren)
@@ -962,9 +1213,9 @@ BemNode.prototype = {
                 this._removeFromParentBlockElems()
                 this._parentBlock = bemNode._parentBlock
                 this._addToParentBlockElems()
-                this._name = this._parentBlock._name + '__' + this._nodeName
-                this._decl = Declaration[this._name]
-                this._defineUserMethods()
+                this._defineDeclarationBySelector(
+                    this._parentBlock._selector + '__' + this._nodeName.toLowerCase()
+                )
 
                 if (!dontAffectChildren) {
                     this._setParentBlockForChildren(this, bemNode)
@@ -1002,7 +1253,7 @@ BemNode.prototype = {
     parentNode: function (bemNode) {
         if (typeof bemNode !== 'undefined') {
             if (this._renderedOnce) {
-                this.remove(true)
+                this.detach()
             }
             if (bemNode !== this._parentNode) {
                 this._prevParentNode = this._parentNode
@@ -1082,12 +1333,12 @@ BemNode.prototype = {
     _extendProperty: function (propertyName, defaults)
     {
         var actuals = this[propertyName]
+        var lowerCaseKey
 
         for (var key in defaults) {
-            if (typeof actuals[key] !== 'undefined' && actuals[key] !== '') {
-                this[propertyName][key] = actuals[key]
-            } else {
-                this[propertyName][key] = defaults[key]
+            lowerCaseKey = key.toLowerCase()
+            if (typeof actuals[lowerCaseKey] === 'undefined' || actuals[lowerCaseKey] === '') {
+                actuals[lowerCaseKey] = defaults[key]
             }
         }
 
@@ -1110,9 +1361,16 @@ BemNode.prototype = {
      * @data  anything       Additional data
      */
     mod: function (name, value, data) {
-        if (typeof name === 'object') {
+        if (typeof name === 'undefined') {
+            return this._mod
+        } else if (typeof name === 'string') {
+            name = name.toLowerCase()
+        } else {
             for (var key in name) this.mod(key, name[key])
-        } else if (typeof value === 'undefined') {
+            return this
+        }
+
+        if (typeof value === 'undefined') {
             return this._mod[name]
         } else if (this._mod[name] !== value) {
             this._mod[name] = value
@@ -1153,9 +1411,16 @@ BemNode.prototype = {
      * @value anything
      */
     param: function (name, value) {
-        if (typeof name === 'object') {
+        if (typeof name === 'undefined') {
+            return this._param
+        } else if (typeof name === 'string') {
+            name = name.toLowerCase()
+        } else {
             for (var key in name) this.param(key, name[key])
-        } else if (typeof value === 'undefined') {
+            return this
+        }
+
+        if (typeof value === 'undefined') {
             return this._param[name]
         } else {
             this._param[name] = value
@@ -1170,14 +1435,28 @@ BemNode.prototype = {
      * @events  string   Space splitted event list: 'click' or 'click keypress'
      * @handler function
      */
-    on: function (events, handler) {
-        var eventsArray = events.split(' ')
-        for (var i = 0, ii = eventsArray.length; i < ii; i++) {
-            (function (bemNode, event) {
-                bemNode._domNode.addEventListener(event, function (e) {
-                    handler.call(bemNode, e, e.detail)
-                })
-            })(this, eventsArray[i])
+    on: function (event, handler, isSingleEvent) {
+        if (typeof handler !== 'function') return this
+
+        if (!isSingleEvent && event.indexOf(' ') > -1) {
+            var events = event.split(' ')
+            for (var i = 0, ii = events.length; i < ii; i++) {
+                this.on(events[i], handler, isSingleEvent)
+            }
+        } else {
+            if (this._domNode === null) {
+                if (this._domNodeEventHandlers === null) {
+                    this._domNodeEventHandlers = {}
+                }
+                if (typeof this._domNodeEventHandlers[event] === 'undefined') {
+                    this._domNodeEventHandlers[event] = []
+                }
+                this._domNodeEventHandlers[event].push(handler)
+            } else {
+                this._domNode.addEventListener(event, function (e) {
+                    handler.call(this, e, e.detail)
+                }.bind(this))
+            }
         }
 
         return this
@@ -1191,14 +1470,20 @@ BemNode.prototype = {
      * @handler  function
      */
     onWin: function (events, handler) {
-        var eventsArray = events.split(' ')
-        for (var i = 0, ii = eventsArray.length; i < ii; i++) {
-            (function (bemNode, event) {
-                window.addEventListener(event, function (e) {
-                    handler.call(bemNode, e, e.detail)
-                })
-            })(this, eventsArray[i])
+        if (typeof handler !== 'function') return this
+
+        if (this._onWinHandlers === null) {
+            this._onWinHandlers = []
         }
+
+        events.split(' ').forEach(function (event) {
+            var winHandler = function (e) {
+                handler.call(this, e, e.detail)
+            }.bind(this)
+
+            window.addEventListener(event, winHandler)
+            this._onWinHandlers.push(event, winHandler)
+        }.bind(this))
 
         return this
     },
@@ -1209,8 +1494,19 @@ BemNode.prototype = {
      * @modName  string
      * @modValue string|boolean
      * @handler  function
+     * @fromDecl boolean Private param for cache
      */
-    onMod: function (modName, modValue, handler) {
+    onMod: function (modName, modValue, handler, fromDecl) {
+        // Used in toHtml() method to restore function links
+        if (fromDecl) {
+            handler.beastDeclPath = 'Beast.declaration["' + this._selector + '"].onMod["' + modName + '"]["' + modValue + '"]'
+        }
+
+        modName = modName.toLowerCase()
+
+        if (this._modHandlers === null) {
+            this._modHandlers = {}
+        }
         if (typeof this._modHandlers[modName] === 'undefined') {
             this._modHandlers[modName] = {}
         }
@@ -1248,7 +1544,7 @@ BemNode.prototype = {
      */
     triggerWin: function (eventName, data) {
         if (this._domNode) {
-            eventName = this.parentBlock()._name + ':' + eventName
+            eventName = this.parentBlock()._nodeName + ':' + eventName
             window.dispatchEvent(
                 data
                     ? new CustomEvent(eventName, {detail:data})
@@ -1264,17 +1560,17 @@ BemNode.prototype = {
      *
      * @return number
      */
-    index: function () {
+    index: function (allowStrings) {
         var siblings = this._parentNode._children
         var dec = 0
         for (var i = 0, ii = siblings.length; i < ii; i++) {
             if (typeof siblings[i] === 'string') dec++
-            if (siblings[i] === this) return i-dec
+            if (siblings[i] === this) return allowStrings ? i : i - dec
         }
     },
 
     /**
-     * Empties children.
+     * Empties children
      */
     empty: function () {
         var children
@@ -1290,13 +1586,13 @@ BemNode.prototype = {
         if (children) {
             for (var i = 0, ii = children.length; i < ii; i++) {
                 if (children[i] instanceof BemNode) {
-                    children[i]._unlink()
-                    children[i]._removeFromParentBlockElems()
+                    children[i].remove()
                 }
             }
         }
 
         if (this._domNode) {
+            // Child text nodes could be left
             while (this._domNode.firstChild) {
                 this._domNode.removeChild(this._domNode.firstChild)
             }
@@ -1306,17 +1602,7 @@ BemNode.prototype = {
     },
 
     /**
-     * Unlinks node from the common list of nodes
-     */
-    _unlink: function () {
-        var decl = this._decl
-        if (decl) {
-            decl.onRemove.call(this)
-        }
-    },
-
-    /**
-     * Remove compontent from parent block elems array
+     * Removes itself from parent block elems array
      */
     _removeFromParentBlockElems: function () {
         var parentBlock
@@ -1330,7 +1616,7 @@ BemNode.prototype = {
         if (parentBlock) {
             for (var i = 0, ii = this._parentBlock._elems.length; i < ii; i++) {
                 if (this._parentBlock._elems[i] === this) {
-                    this._parentBlock._elems.splice(i,1)
+                    this._parentBlock._elems.splice(i, 1)
                     break
                 }
             }
@@ -1338,7 +1624,7 @@ BemNode.prototype = {
     },
 
     /**
-     * Add compontent to parent block elems array
+     * Adds itself to parent block elems array
      */
     _addToParentBlockElems: function () {
         var parentBlock
@@ -1355,13 +1641,38 @@ BemNode.prototype = {
     },
 
     /**
-     * Removes current node
+     * Removes itself
      */
-    remove: function (dontUnlink) {
+    remove: function () {
+
+        // Proper remove children
+        for (var i = 0, ii = this._children.length; i < ii; i++) {
+            if (this._children[i] instanceof BemNode) {
+                this._children[i].remove()
+            }
+        }
+
+        // Remove window handlers
+        if (this._onWinHandlers !== null) {
+            for (var i = 0, ii = this._onWinHandlers.length; i < ii; i += 2) {
+                window.removeEventListener(this._onWinHandlers[i], this._onWinHandlers[i+1])
+            }
+        }
+
+        this.detach()
+    },
+
+    /**
+     * Detaches itself
+     */
+    detach: function () {
+
+        // Remove DOM node
         if (this._domNode && this._domNode.parentNode) {
             this._domNode.parentNode.removeChild(this._domNode)
         }
 
+        // Remove from parentNode's children
         if (this._parentNode) {
             this._parentNode._children.splice(
                 this._parentNode._children.indexOf(this), 1
@@ -1369,11 +1680,64 @@ BemNode.prototype = {
             this._parentNode = null
         }
 
-        if (!dontUnlink) {
-            this._unlink()
-        }
-
         this._removeFromParentBlockElems()
+
+        return this
+    },
+
+    /**
+     * Inserts new children by index. If there's no DOM yet,
+     * appends to expandedChildren else appends to children
+     * and renders its DOM.
+     *
+     * @children string|object Children to insert
+     * @index    number        Index to insert
+     */
+    insertChild: function (children, index) {
+        for (var i = 0, ii = children.length; i < ii; i++) {
+            var child = children[i]
+
+            if (child === false || child === null || typeof child === 'undefined') {
+                continue
+            } else if (Array.isArray(child)) {
+                this.insertChild(child, index)
+                continue
+            } else if (child instanceof BemNode) {
+                child.parentNode(this)
+                if (child._isElem) {
+                    if (this._isBlock) {
+                        child.parentBlock(this)
+                    } else if (this._parentBlock !== null) {
+                        child.parentBlock(this._parentBlock)
+                    }
+                }
+            } else if (typeof child === 'number') {
+                child = child.toString()
+            }
+
+            var childrenToChange = this._children
+
+            if (this._isExpandContext) {
+                if (this._expandedChildren === null) {
+                    this._expandedChildren = []
+                }
+                childrenToChange = this._expandedChildren
+            }
+
+            if (index === 0) {
+                childrenToChange.unshift(child)
+            } else if (index === -1) {
+                childrenToChange.push(child)
+            } else {
+                childrenToChange.splice(index, 0, child)
+            }
+
+            if (this._domNode && !this._isReplaceContext) {
+                this._renderChildWithIndex(
+                    index === -1 ? childrenToChange.length - 1 : index
+                )
+            }
+        }
 
         return this
     },
@@ -1386,39 +1750,18 @@ BemNode.prototype = {
      * @children string|object Multiple argument
      */
     append: function () {
-        for (var i = 0, ii = arguments.length; i < ii; i++) {
-            var child = arguments[i]
+        return this.insertChild(arguments, -1)
+    },
 
-            if (child === false || child === null || typeof child === 'undefined') {
-                continue
-            } else if (Array.isArray(child)) {
-                this.append.apply(this, child)
-                continue
-            } else if (child instanceof BemNode) {
-                child.parentNode(this)
-                if (child._isElem) {
-                    if (this._isBlock) {
-                        child.parentBlock(this)
-                    } else if (this._attr.context) {
-                        child.parentBlock(this._parentBlock)
-                    }
-                }
-            } else if (typeof child === 'number') {
-                child = child.toString()
-            }
-
-            if (this._domNode && !this._isReplaceContext) {
-                this._children.push(child)
-                this._renderChildWithIndex(this._children.length-1)
-            } else if (this._isExpandContext) {
-                if (!this._expandedChildren) this._expandedChildren = []
-                this._expandedChildren.push(child)
-            } else {
-                this._children.push(child)
-            }
-        }
-
-        return this
+    /**
+     * Prepends new children. If there's no DOM yet,
+     * appends to expandedChildren else appends to children
+     * and renders its DOM.
+     *
+     * @children string|object Multiple argument
+     */
+    prepend: function () {
+        return this.insertChild(arguments, 0)
     },
 
     /**
@@ -1428,16 +1771,27 @@ BemNode.prototype = {
      * @bemNode object Target
      */
     appendTo: function (bemNode) {
-        this.remove(true)
         bemNode.append(this)
+        return this
+    },
 
+    /**
+     * Prepends node to the target. If current node belongs to another parent,
+     * method removes it from the old context.
+     *
+     * @bemNode object Target
+     */
+    prependTo: function (bemNode) {
+        bemNode.prepend(this)
         return this
     },
 
     /**
      * Replaces current bemNode with the new
+     * @bemNode BemNode Node that replaces
+     * @ignoreDom boolean Private flag - do not change DOM; used in toHtml() method
      */
-    replaceWith: function (bemNode) {
+    replaceWith: function (bemNode, ignoreDom) {
         this._completeExpand()
 
         var parentNode = this._parentNode
@@ -1447,7 +1801,7 @@ BemNode.prototype = {
             if (parentNode === bemNode) {
                 parentNode = this._prevParentNode
             } else {
-                siblingsAfter = parentNode._children.splice(this.index())
+                siblingsAfter = parentNode._children.splice(this.index(true))
                 siblingsAfter.shift()
             }
             parentNode._isReplaceContext = true
@@ -1465,7 +1819,9 @@ BemNode.prototype = {
             if (bemNode._isBlock) {
                 bemNode._resetParentBlockForChildren()
             }
-            bemNode.render()
+            if (!ignoreDom) {
+                bemNode.render()
+            }
         }
     },
 
@@ -1484,15 +1840,28 @@ BemNode.prototype = {
 
     /**
      * Replaces current bemNode with the new wich implemets its declaration
+     * @bemNode   BemNode Node that implements
+     * @ignoreDom boolean Private flag - do not change DOM; used in toHtml() method
      */
-    implementWith: function (bemNode) {
+    implementWith: function (bemNode, ignoreDom) {
+
+        if (this._domNodeEventHandlers !== null) {
+            if (bemNode._domNodeEventHandlers === null) {
+                bemNode._domNodeEventHandlers = this._domNodeEventHandlers
+            } else {
+                bemNode._domNodeEventHandlers = bemNode._domNodeEventHandlers.concat(
+                    this._domNodeEventHandlers
+                )
+            }
+        }
+
         this._setDomNodeClasses()
         bemNode._implementedNode = this
         bemNode._extendProperty('_mod', this._mod)
         bemNode._extendProperty('_param', this._param)
         this._extendProperty('_mod', bemNode._mod)
-        bemNode._defineUserMethods(this._name)
-        this.replaceWith(bemNode)
+        bemNode._defineUserMethods(this._selector)
+        this.replaceWith(bemNode, ignoreDom)
         this._removeFromParentBlockElems()
         bemNode._addToParentBlockElems()
     },
@@ -1519,12 +1888,17 @@ BemNode.prototype = {
     elem: function () {
         if (this._isElem) return
 
+        if (arguments.length === 0) {
+            return this._elems
+        }
+
         var elems = []
         for (var i = 0, ii = this._elems.length, elem; i < ii; i++) {
             elem = this._elems[i]
-            for (var j = 0, jj = arguments.length; j < jj; j++) {
-                if (elem._nodeName === arguments[j] ||
-                    elem._implementedNode && elem._implementedNode._nodeName === arguments[j]
+            for (var j = 0, jj = arguments.length, elemName; j < jj; j++) {
+                elemName = arguments[j].toLowerCase()
+                if (elem._nodeName === elemName ||
+                    elem._implementedNode && elem._implementedNode._nodeName === elemName
                 ) {
                     elems.push(elem)
                 }
@@ -1615,19 +1989,6 @@ BemNode.prototype = {
     },
 
     /**
-     * Variation of get() method with current block forcing
-     */
-    getWithContext: function () {
-        var children = this.get.apply(this, arguments)
-        for (var i = 0, ii = children.length; i < ii; i++) {
-            if (children[i] instanceof BemNode) {
-                children[i]._forcedParentBlock = true
-            }
-        }
-        return children
-    },
-
-    /**
      * Checks if there are any children
      *
      * @path string Multiple argument: path to node or attribute
@@ -1654,7 +2015,7 @@ BemNode.prototype = {
     /**
      * Clones itself
      */
-    clone: function () {
+    clone: function (parentNodeOfClone) {
         var clone = {}
         clone.__proto__ = this.__proto__
 
@@ -1664,7 +2025,7 @@ BemNode.prototype = {
                 for (var i = 0, ii = this._children.length; i < ii; i++) {
                     cloneChildren.push(
                         this._children[i] instanceof BemNode
-                            ? this._children[i].clone()
+                            ? this._children[i].clone(clone)
                             : this._children[i]
                     )
                 }
@@ -1672,6 +2033,10 @@ BemNode.prototype = {
             } else {
                 clone[key] = this[key]
             }
+        }
+
+        if (typeof parentNodeOfClone !== 'undefined') {
+            clone._parentNode = parentNodeOfClone
         }
 
         return clone
@@ -1684,11 +2049,10 @@ BemNode.prototype = {
      * @parentDOMNode object Parent for the root node attaching
      */
     render: function (parentDOMNode) {
-
         // Call expand handler
-        if (!this._isExpanded && this._decl && this._decl.commonExpand) {
+        if (!this._isExpanded && this._decl && this._decl.__commonExpand) {
             this._isExpandContext = true
-            this._decl.commonExpand.call(this)
+            this._decl.__commonExpand.call(this)
             this._completeExpand()
             this._isExpandContext = false
         }
@@ -1703,10 +2067,6 @@ BemNode.prototype = {
             this._domNode = document.createElement(this._tag)
             this._domNode.bemNode = this
 
-            if (this._id !== '') {
-                this._domNode.id = this._id
-            }
-
             this._setDomNodeClasses()
             this._setDomNodeCSS()
 
@@ -1719,7 +2079,12 @@ BemNode.prototype = {
         if (parentDOMNode) {
             parentDOMNode.appendChild(this._domNode)
         } else {
-            this._parentNode._domNode.appendChild(this._domNode)
+            this._parentNode._domNode.insertBefore(
+                this._domNode,
+                this._parentNode._domNode.childNodes[
+                    this.index(true)
+                ]
+            )
         }
 
         // When first time render
@@ -1733,6 +2098,15 @@ BemNode.prototype = {
             // For HTML-body remove previous body tag
             if (this._tag === 'body') {
                 document.documentElement.replaceChild(this._domNode, document.body)
+            }
+
+            // Add event handlers
+            if (this._domNodeEventHandlers !== null) {
+                for (var eventName in this._domNodeEventHandlers) {
+                    for (var i = 0, ii = this._domNodeEventHandlers[eventName].length; i < ii; i++) {
+                        this.on(eventName, this._domNodeEventHandlers[eventName][i], true)
+                    }
+                }
             }
 
             // Call mod handlers
@@ -1761,8 +2135,9 @@ BemNode.prototype = {
         if (child instanceof BemNode) {
             child.render()
         } else {
-            this._domNode.appendChild(
-                document.createTextNode(child)
+            this._domNode.insertBefore(
+                document.createTextNode(child),
+                this._domNode.childNodes[index]
             )
         }
     },
@@ -1785,11 +2160,11 @@ BemNode.prototype = {
     _domInit: function () {
         var decl = this._decl
         if (decl) {
-            decl.commonDomInit && decl.commonDomInit.call(this)
+            decl.__commonDomInit && decl.__commonDomInit.call(this)
         }
 
         if (this._implementedNode && (decl = this._implementedNode._decl)) {
-            decl.commonDomInit && decl.commonDomInit.call(this)
+            decl.__commonDomInit && decl.__commonDomInit.call(this)
         }
 
         this._domInited = true
@@ -1811,7 +2186,7 @@ BemNode.prototype = {
     _callModHandlers: function (modName, modValue, data, context) {
         var handlers
 
-        if (this._modHandlers[modName]) {
+        if (this._modHandlers !== null && this._modHandlers[modName]) {
             if (this._modHandlers[modName][modValue]) {
                 handlers = this._modHandlers[modName][modValue]
             } else if (modValue === false && this._modHandlers[modName]['']) {
@@ -1844,9 +2219,21 @@ BemNode.prototype = {
      * Sets DOM classes
      */
     _setDomNodeClasses: function (returnClassNameOnly) {
-        var className = this._name
+        var className = this._selector
         var value
         var tail
+
+        if (this._flattenInheritsForDom) {
+            for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
+                className += ' ' + this._flattenInheritsForDom[i]
+            }
+        }
+
+        if (this._mix.length !== 0) {
+            for (var i = 0, ii = this._mix.length; i < ii; i++) {
+                className += ' ' + this._mix[i]
+            }
+        }
 
         for (var key in this._mod) {
             value = this._mod[key]
@@ -1856,10 +2243,12 @@ BemNode.prototype = {
                 ? '_' + key
                 : '_' + key + '_' + value
 
-            className += ' ' + this._name + tail
+            className += ' ' + this._selector + tail
 
-            for (var i = 0, ii = this._mix.length; i < ii; i++) {
-                className += ' ' + this._mix[i] + tail
+            if (this._flattenInheritsForDom) {
+                for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
+                    className += ' ' + this._flattenInheritsForDom[i] + tail
+                }
             }
         }
 
@@ -1867,15 +2256,9 @@ BemNode.prototype = {
             className += ' ' + this._implementedNode._setDomNodeClasses(true)
         }
 
-        for (var i = 0, ii = this._mix.length; i < ii; i++) {
-            className += ' ' + this._mix[i]
-        }
-
         if (returnClassNameOnly) {
             return className
         } else {
-            this._domClasses = className.split(' ')
-
             if (this._domNode) {
                 this._domNode.className = className
             }
@@ -1886,28 +2269,131 @@ BemNode.prototype = {
      * Sets DOM CSS
      */
     _setDomNodeCSS: function () {
-        var css = ''
-
         for (var name in this._css) {
             if (this._css[name] || this._css[name] === 0) {
-                css += name + ':' + this._css[name] + ';'
+                this._domNode.style[name] = this._css[name]
+                window.getComputedStyle(this._domNode)[name]
             }
         }
-
-        if (css !== '') this._domNode.setAttribute('style', css)
     },
 
     /**
-     * Gets HTML text for current node and its children.
-     *
+     * Conerts BemNode with its children to string of Beast.node() functions
      * @return string
      */
-    renderHTML: function () {
-        var html = ''
+    toStringOfFunctions: function () {
+        var attr = '{'
+        for (var key in this._mod) {
+            attr += '"' + (key.substr(0,1).toUpperCase() + key.slice(1)) + '":'
 
-        //TODO: Some recursive routine here
+            if (typeof this._mod[key] === 'string') {
+                attr += '"' + this._mod[key] + '",'
+            } else {
+                attr += this._mod[key] + ','
+            }
+        }
+        for (var key in this._param) {
+            if (typeof this._param[key] === 'string' || typeof this._param[key] === 'number') {
+                attr += '"'+ key +'":"'+ this._param[key] +'",'
+            }
+        }
+        attr += '}'
 
-        return html
+        var children = ''
+        for (var i = 0, ii = this._children.length; i < ii; i++) {
+            if (this._children[i] instanceof BemNode) {
+                children += this._children[i].toStringOfFunctions()
+            } else {
+                children += '"'+ escapeDoubleQuotes(this._children[i].toString()) +'"'
+            }
+
+            if (i < ii - 1) {
+                children += ','
+            }
+        }
+
+        return 'Beast.node(' +
+            '"'+ this._nodeName + '",' +
+            (attr === '{}' ? 'null' : attr) +
+            (children ? ',' + children + ')' : ')')
+    },
+
+    /**
+     * Converts BemNode to HTML
+     * @return string HTML
+     */
+    toHtml: function () {
+        // Call expand handler
+        if (!this._isExpanded && this._decl && this._decl.__commonExpand) {
+            this._isExpandContext = true
+            this._decl.__commonExpand.call(this)
+            this._completeExpand()
+            this._isExpandContext = false
+        }
+
+        // HTML attrs
+        var attrs = ''
+
+        for (var key in this._domAttr)  {
+            attrs += ' ' + key + '="' + escapeDoubleQuotes(this._domAttr[key].toString()) + '"'
+        }
+
+        // Class attr
+        attrs += ' class="' + this._setDomNodeClasses(true) + '"'
+
+        // Style attr
+        var style = ''
+        for (var key in this._css) {
+            if (this._css[key] || this._css[key] === 0) {
+                style += camelCaseToDash(key) + ':' + escapeDoubleQuotes(this._css[key]) + ';'
+            }
+        }
+
+        if (style !== '') {
+            attrs += ' style="' + style + '"'
+        }
+
+        // Stringify _domNodeEventHandlers
+        if (this._domNodeEventHandlers) {
+            attrs += ' data-event-handlers="' + encodeURIComponent(stringifyObject(this._domNodeEventHandlers)) + '"'
+        }
+
+        // Stringify _modHandlers
+        if (this._modHandlers) {
+            attrs += ' data-mod-handlers="' + encodeURIComponent(stringifyObject(this._modHandlers)) + '"'
+        }
+
+        // Stringify properties
+        if (!objectIsEmpty(this._mod)) {
+            attrs += ' data-mod="' + encodeURIComponent(stringifyObject(this._mod)) + '"'
+        }
+        if (!objectIsEmpty(this._param)) {
+            attrs += ' data-param="' + encodeURIComponent(stringifyObject(this._param)) + '"'
+        }
+        if (this._mix.length !== 0) {
+            attrs += ' data-mix="' + encodeURIComponent(stringifyObject(this._mix)) + '"'
+        }
+        if (this._afterDomInitHandlers.length !== 0) {
+            attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(this._afterDomInitHandlers)) + '"'
+        }
+        if (this._implementedNode !== null) {
+            attrs += ' data-implemented-node-name="' + this._implementedNode._nodeName + '"'
+        }
+
+        // HTML tag
+        if (SingleTag[this._tag] === 1) {
+            return '<' + this._tag + attrs + '/>'
+        } else {
+            var content = ''
+            for (var i = 0, ii = this._children.length; i < ii; i++) {
+                if (this._children[i] instanceof BemNode) {
+                    content += this._children[i].toHtml()
+                } else {
+                    content += escapeHtmlTags(this._children[i].toString())
+                }
+            }
+            return '<' + this._tag + attrs + '>' + content + '</' + this._tag + '>'
+        }
     },
 
     /**
