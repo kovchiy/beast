@@ -24,6 +24,7 @@
     * [param](#ref-bemnode-param)
     * [domAttr](#ref-bemnode-domattr)
     * [css](#ref-bemnode-css)
+    * [state](#ref-bemnode-state)
     * [on](#ref-bemnode-on)
     * [onWin](#ref-bemnode-onwin)
     * [onMod](#ref-bemnode-onmod)
@@ -56,6 +57,7 @@
     * [expand](#ref-decl-expand)
     * [mod](#ref-decl-mod)
     * [param](#ref-decl-param)
+    * [state](#ref-decl-state)
     * [tag](#ref-decl-tag)
     * [domAttr](#ref-decl-domattr)
     * [noElems](#ref-decl-noelems)
@@ -82,8 +84,6 @@
 * Декларация развертки и поведения компонента
 
 ---
-
-![](http://jing.yandex-team.ru/files/kovchiy/ME3050430039_2.jpg)
 
 <a name="bmlmarkup"/>
 ## BML-РАЗМЕТКА
@@ -258,8 +258,6 @@ var node = <Button>{label}</Button>
 
 ---
 
-![](http://jing.yandex-team.ru/files/kovchiy/beast-bemnode-24234.jpg)
-
 <a name="component"/>
 ## Компонент (BemNode)
 
@@ -306,8 +304,6 @@ button
 ```
 
 ---
-
-![](http://jing.yandex-team.ru/files/kovchiy/ME3050436531_2.jpg)
 
 <a name="declaration"/>
 ## ДЕКЛАРАЦИЯ
@@ -581,8 +577,6 @@ Beast
 
 ---
 
-![](http://jing.yandex-team.ru/files/kovchiy/lamp-234234234.jpg)
-
 <a name="declaration-final"/>
 ## Итого
 
@@ -597,8 +591,6 @@ Beast
 * Модификация структуры компонентов производится только методами компонентов. На этапе инициализации и далее, когда за иерархией компонент закреплено DOM-дерево, изменения отражаются и на нем.
 
 ---
-
-![](http://jing.yandex-team.ru/files/kovchiy/ME3050436521_2.jpg)
 
 <a name="ref"/>
 ## СПРАВОЧНИК
@@ -748,6 +740,10 @@ Beast.decl('popup', {
     }
 })
 ```
+
+<a name="ref-bemnode-state"/>
+#### state (stateName:string, [stateValue:string]) [:anything]
+TODO: описать
 
 <a name="ref-bemnode-on"/>
 #### on (eventName:string, handler:function)
@@ -1166,6 +1162,10 @@ Beast.decl('button', {
 })
 ```
 
+<a name="ref-decl-state"/>
+#### state
+TODO: описать
+
 <a name="ref-decl-tag"/>
 #### tag
 Декларативная форма метода BemNode::tag().
@@ -1293,8 +1293,6 @@ Beast.node('Button', {'Size':'M', 'href':'#foo'}, 'Перейти')
 Выполнит callback-функцию, когда загрузятся все стили и скрипты.
 
 ---
-
-![](http://jing.yandex-team.ru/files/kovchiy/ME3050275885_2.jpg)
 
 <a name="helloworld"/>
 ## Hello, world
