@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.23.9
+ * @version 0.24.21
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -62,6 +62,7 @@ var ReservedDeclarationProperies = {
     onMod:1,
     tag:1,
     noElems:1,
+    state:1,
 
     // 2 means not to inherit this field
     abstract:2,
@@ -125,7 +126,7 @@ function stringifyObject (ctx) {
     else if (typeof ctx === 'object') {
         var string = '{'
         for (var key in ctx) {
-            if (typeof ctx[key] !== 'undefined') {
+            if (ctx[key] !== undefined) {
                 string += '"' + key + '":' + stringifyObject(ctx[key]) + ','
             }
         }
@@ -136,15 +137,37 @@ function stringifyObject (ctx) {
     else if (typeof ctx === 'string') {
         return '"' + escapeDoubleQuotes(ctx) + '"'
     }
-    else if (typeof ctx === 'function' && typeof ctx.beastDeclPath !== 'undefined') {
+    else if (typeof ctx === 'function' && ctx.beastDeclPath !== undefined) {
         return ctx.beastDeclPath
-    } else {
+    }
+    else {
         return ctx.toString()
     }
 }
 function objectIsEmpty (object) {
     for (var key in object) return false
     return true
+}
+function cloneObject (ctx) {
+    if (Array.isArray(ctx)) {
+        var array = []
+        for (var i = 0, ii = ctx.length; i < ii; i++) {
+            array.push(
+                cloneObject(ctx[i])
+            )
+        }
+        return array
+    }
+    else if (typeof ctx === 'object' && ctx) {
+        var object = {}
+        for (var key in ctx) {
+            object[key] = cloneObject(ctx[key])
+        }
+        return object
+    }
+    else {
+        return ctx
+    }
 }
 
 /**
@@ -272,7 +295,7 @@ function EvalBml (text) {
  */
 Beast.domInit = function (domNode, isInnerCall) {
 
-    if (typeof domNode === 'undefined') {
+    if (domNode === undefined) {
         return false
     }
 
@@ -351,7 +374,7 @@ Beast.domInit = function (domNode, isInnerCall) {
                 if (childNode instanceof BemNode) {
                     if (childNode._implementedNode) {
                         var childDomNode = childNode._domNode
-                        childNode._domNode = null
+                        childNode._domNode = undefined
                         bemNode.append(childNode._implementedNode)
                         childNode._implementedNode.implementWith(childNode, true)
                         childNode._domNode = childDomNode
@@ -376,10 +399,17 @@ Beast.domInit = function (domNode, isInnerCall) {
             domNode.bemNode = bemNode
 
             // Add event handlers
-            if (bemNode._domNodeEventHandlers !== null) {
+            if (bemNode._domNodeEventHandlers !== undefined) {
                 for (var eventName in bemNode._domNodeEventHandlers) {
                     for (var i = 0, ii = bemNode._domNodeEventHandlers[eventName].length; i < ii; i++) {
-                        bemNode.on(eventName, bemNode._domNodeEventHandlers[eventName][i], true)
+                        bemNode.on(eventName, bemNode._domNodeEventHandlers[eventName][i], true, false, true)
+                    }
+                }
+            }
+            if (bemNode._windowEventHandlers !== undefined) {
+                for (var eventName in bemNode._windowEventHandlers) {
+                    for (var i = 0, ii = bemNode._windowEventHandlers[eventName].length; i < ii; i++) {
+                        bemNode.onWin(eventName, bemNode._windowEventHandlers[eventName][i], true, false, true)
                     }
                 }
             }
@@ -441,10 +471,10 @@ Beast.decl = function (selector, decl) {
         }
     }
 
-    if (typeof Declaration[selector] !== 'undefined') {
+    if (Declaration[selector] !== undefined) {
         var oldDecl = Declaration[selector]
         for (var item in oldDecl) {
-            if (typeof decl[item] === 'undefined') {
+            if (decl[item] === undefined) {
                 decl[item] = oldDecl[item]
             }
         }
@@ -484,9 +514,10 @@ function CompileDeclarations () {
         for (var key in extObj) {
             if (ReservedDeclarationProperies[key] === 2) continue
 
-            if (typeof obj[key] === 'undefined') {
+            if (obj[key] === undefined) {
                 obj[key] = extObj[key]
-            } else if (typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction) {
+            }
+            else if (typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction) {
                 (function (fn, inheritedFn, inheritedDecl) {
                     fn._inheritedDeclFunction = function () {
                         // Imitate inherited decl context for inner inherited() calls
@@ -496,7 +527,8 @@ function CompileDeclarations () {
                         this._decl = temp
                     }
                 })(obj[key], extObj[key], extObj)
-            } else if (typeof extObj[key] === 'object' && !Array.isArray(extObj[key])) {
+            }
+            else if (typeof extObj[key] === 'object' && !Array.isArray(extObj[key])) {
                 extend(obj[key], extObj[key])
             }
         }
@@ -517,7 +549,7 @@ function CompileDeclarations () {
             var selector = inheritedDecls[i]
             var inheritedDecl = Declaration[selector]
 
-            if (typeof flattenInherits === 'undefined') {
+            if (flattenInherits === undefined) {
                 flattenInherits = []
             }
             flattenInherits.push(selector)
@@ -586,25 +618,25 @@ function CompileDeclarations () {
                 }
             })
         }
+        if (decl.on) {
+            expandHandlers.unshift(function () {
+                for (var events in decl.on) {
+                    this.on(events, decl.on[events], false, true)
+                }
+            })
+        }
+        if (decl.onWin) {
+            expandHandlers.unshift(function () {
+                for (var events in decl.onWin) {
+                    this.onWin(events, decl.onWin[events], false, true)
+                }
+            })
+        }
 
         // Compile domInit rules to methods array
         var domInitHandlers = []
         if (decl.domInit) {
             domInitHandlers.unshift(decl.domInit)
-        }
-        if (decl.on) {
-            domInitHandlers.unshift(function () {
-                for (var events in decl.on) {
-                    this.on(events, decl.on[events])
-                }
-            })
-        }
-        if (decl.onWin) {
-            domInitHandlers.unshift(function () {
-                for (var events in decl.onWin) {
-                    this.onWin(events, decl.onWin[events])
-                }
-            })
         }
 
         // Compile common handlers
@@ -874,7 +906,7 @@ function ParseBMLNode (text, single, isRoot) {
     }
 
     if (parsed.attr === '') {
-        parsed.attr === 'null'
+        parsed.attr === 'undefined'
     }
 
     return "Beast.node('" + parsed.name + "',{" + parsed.attr + "}" + (single ? ')' : '')
@@ -900,7 +932,7 @@ function ParseNameAndAttrOfBMLNode (text) {
         }
 
         // node name
-        if ((s === ' ' || s === '\n' || i === ii) && typeof nodeName === 'undefined') {
+        if ((s === ' ' || s === '\n' || i === ii) && nodeName === undefined) {
             nodeName = buffer
             buffer = ''
         }
@@ -947,6 +979,311 @@ function ParseNameAndAttrOfBMLNode (text) {
 }
 
 /**
+ * Finds difference between @newNode and @oldNode and patches the DOM
+ * @parentDomNode DomElement Node to fix children
+ * @newNode       BemNode    Node after state change
+ * @oldNode       BemNode    Node before state change
+ * @index         number     Nodes common index
+ */
+Beast.patchDom = function (parentDomNode, newNode, oldNode, newIndex, oldIndex, oldParentNode) {
+    if (newNode === undefined && oldNode === undefined) {
+        return
+    }
+    if (newIndex === undefined) {
+        newIndex = 0
+    }
+    if (oldIndex === undefined) {
+        oldIndex = 0
+    }
+
+    // If newNode linked with oldNode -
+    // move nodes to the end until newNode index equals to its DOM node index,
+    // then if newNode and oldNode has any differences - continue children patching
+    if (newNode !== undefined && newNode._domNode !== undefined) {
+        var oldNodeReplacing
+        while (newNode._domNode !== parentDomNode.childNodes[newIndex]) {
+            oldNodeReplacing = oldParentNode._children[oldIndex]
+            oldParentNode._children.splice(oldIndex, 1)
+            oldParentNode._children.push(oldNodeReplacing)
+            parentDomNode.appendChild(
+                typeof oldNodeReplacing === 'string'
+                    ? parentDomNode.childNodes[newIndex]
+                    : oldNodeReplacing._domNode
+            )
+        }
+
+        oldNodeReplacing = oldParentNode._children[oldIndex]
+
+        if (oldNodeReplacing._linkedWithHashGlobal) {
+            patchDomAttributes(newNode._domNode, newNode, oldNodeReplacing)
+            patchDomEventHandlers(newNode._domNode, newNode, oldNodeReplacing)
+            newNode._domInit()
+            return
+        } else {
+            oldNode = oldNodeReplacing
+        }
+    }
+
+    // If there's no oldNode or oldNode linked with other newNode -
+    // create newNode DOM and decrement oldIndex
+    else if (oldNode === undefined || oldNode !== undefined && oldNode._linkedNewNode !== undefined) {
+        if (newNode instanceof BemNode) {
+            newNode.render()
+        } else {
+            parentDomNode.appendChild(
+                document.createTextNode(newNode)
+            )
+        }
+        return true
+    }
+
+    // If there's no newNode -
+    // remove the rest oldNodes DOM
+    else if (newNode === undefined) {
+        var oldNodeReplacing
+        while (parentDomNode.childNodes[newIndex] !== undefined) {
+            oldNodeReplacing = oldParentNode._children[oldIndex]
+
+            if (oldNodeReplacing instanceof BemNode) {
+                oldNodeReplacing.remove()
+            } else {
+                oldParentNode._children.splice(oldIndex, 1)
+                parentDomNode.removeChild(
+                    parentDomNode.childNodes[newIndex]
+                )
+            }
+        }
+
+        return false
+    }
+
+    // If DOM nodes of newNode and oldNode are incompatible -
+    // remove oldNode DOM and create newNode DOM
+    else if (
+        typeof newNode !== typeof oldNode ||
+        typeof newNode === 'string' && newNode !== oldNode ||
+        newNode._tag !== oldNode._tag
+    ) {
+        if (newNode instanceof BemNode) {
+            newNode.render()
+            if (parentDomNode.childNodes[newIndex + 1] !== undefined) {
+                parentDomNode.removeChild(
+                    parentDomNode.childNodes[newIndex + 1]
+                )
+            }
+        } else {
+            parentDomNode.replaceChild(
+                document.createTextNode(newNode),
+                parentDomNode.childNodes[newIndex]
+            )
+        }
+
+        return
+    }
+
+    // If newNode and oldNode are compatible -
+    // patch them and go down to children
+    if (newNode instanceof BemNode) {
+        newNode._domNode = oldNode._domNode
+        newNode._domNode.bemNode = newNode
+        newNode._renderedOnce = true
+
+        patchDomAttributes(newNode._domNode, newNode, oldNode)
+        patchDomEventHandlers(newNode._domNode, newNode, oldNode)
+
+        var newNodeChild
+        var oldNodeChild
+        var newNodeChildrenNum = newNode._children.length
+        var oldNodeChildrenNum = oldNode._children.length
+
+        // Link children with key
+        for (var i = 0; i < newNodeChildrenNum; i++) {
+            newNodeChild = newNode._children[i]
+
+            if (typeof newNodeChild === 'string') {
+                continue
+            }
+
+            for (var j = 0; j < oldNodeChildrenNum; j++) {
+                oldNodeChild = oldNode._children[j]
+
+                if (typeof oldNodeChild === 'string' || oldNodeChild._linkedWithHashGlobal) {
+                    continue
+                }
+
+                if (
+                    newNodeChild._hashGlobal === oldNodeChild._hashGlobal ||
+
+                    newNodeChild._hashLocal === oldNodeChild._hashLocal &&
+                    !oldNodeChild._linkedWithHashLocal &&
+                    newNodeChild._domNode === undefined
+                ) {
+                    if (oldNodeChild._linkedNewNode !== undefined) {
+                        oldNodeChild._linkedNewNode._domNode = undefined
+                        oldNodeChild._linkedNewNode._renderedOnce = false
+                    }
+
+                    newNodeChild._domNode = oldNodeChild._domNode
+                    newNodeChild._domNode.bemNode = newNodeChild
+                    newNodeChild._renderedOnce = true
+
+                    oldNodeChild._linkedNewNode = newNodeChild
+                    oldNodeChild._linkedWithHashGlobal = newNodeChild._hashGlobal === oldNodeChild._hashGlobal
+                    oldNodeChild._linkedWithHashLocal = true
+
+                    if (oldNodeChild._linkedWithHashGlobal) {
+                        break
+                    }
+                }
+            }
+        }
+
+        // Patch children
+        for (var i = 0, oldNodeIndexDec = 0, patchResult; i < newNodeChildrenNum || i < oldNodeChildrenNum + oldNodeIndexDec; i++) {
+            patchResult = Beast.patchDom(
+                newNode._domNode,
+                newNode._children[i],
+                oldNode._children[i - oldNodeIndexDec],
+                i,
+                i - oldNodeIndexDec,
+                oldNode
+            )
+
+            if (patchResult === false) break
+            if (patchResult === true) oldNodeIndexDec++
+        }
+
+        newNode._domInit()
+    }
+}
+
+/**
+ * Finds difference in DOM attributes and patches it
+ * @domNode DomElement DOM node to fix attributes
+ * @newNode BemNode    Node after state change
+ * @oldNode BemNode    Node before state change
+ */
+function patchDomAttributes (domNode, newNode, oldNode) {
+
+    // Compare DOM classes
+    var newDomClasses = newNode._setDomNodeClasses(true)
+    var oldDomClasses = oldNode._setDomNodeClasses(true)
+    if (newDomClasses !== oldDomClasses) {
+        domNode.className = newDomClasses
+    }
+
+    // Compare CSS properties
+    var cssPropNames = keysFromObjects(newNode._css, oldNode._css)
+    for (var i = 0, ii = cssPropNames.length, name; i < ii; i++) {
+        name = cssPropNames[i]
+        if (newNode._css[name] === undefined) {
+            domNode.style[name] = ''
+        }
+        else if (newNode._css[name] !== oldNode._css[name]) {
+            domNode.style[name] = newNode._css[name]
+        }
+    }
+
+    // Compare DOM attributes
+    var domAttrNames = keysFromObjects(newNode._domAttr, oldNode._domAttr)
+    for (var i = 0, ii = domAttrNames.length, name; i < ii; i++) {
+        name = domAttrNames[i]
+        if (newNode._domAttr[name] === undefined) {
+            domNode.removeAttribute(name)
+        }
+        else if (newNode._domAttr[name] !== oldNode._domAttr[name]) {
+            domNode.setAttribute(name, newNode._domAttr[name])
+        }
+    }
+}
+
+/**
+ * Finds difference in event handlers and patches it
+ * @domNode DomElement DOM node to fix event handlers
+ * @newNode BemNode    Node after state change
+ * @oldNode BemNode    Node before state change
+ */
+function patchDomEventHandlers (domNode, newNode, oldNode) {
+    var nodesAreDifferent = newNode._selector !== oldNode._selector
+
+    // Remove previous handlers
+    if (nodesAreDifferent || oldNode._hasExpandContextEventHandlers || oldNode._hasDomInitContextEventHandlers) {
+        for (var eventName in oldNode._domNodeEventHandlers) {
+            for (var i = 0, ii = oldNode._domNodeEventHandlers[eventName].length, eventHandler; i < ii; i++) {
+                eventHandler = oldNode._domNodeEventHandlers[eventName][i]
+                if (nodesAreDifferent || eventHandler.isExpandContext || eventHandler.isDomInitContext) {
+                    domNode.removeEventListener(eventName, eventHandler)
+                }
+            }
+        }
+    }
+    if (nodesAreDifferent || oldNode._hasExpandContextWindowEventHandlers || oldNode._hasDomInitContextWindowEventHandlers) {
+        for (var eventName in oldNode._windowEventHandlers) {
+            for (var i = 0, ii = oldNode._windowEventHandlers[eventName].length, eventHandler; i < ii; i++) {
+                eventHandler = oldNode._windowEventHandlers[eventName][i]
+                if (nodesAreDifferent || eventHandler.isExpandContext || eventHandler.isDomInitContext) {
+                    window.removeEventListener(eventName, eventHandler)
+                }
+            }
+        }
+    }
+
+    // Add new handlers
+    if (nodesAreDifferent || newNode._hasExpandContextEventHandlers) {
+        for (var eventName in newNode._domNodeEventHandlers) {
+            for (var i = 0, ii = newNode._domNodeEventHandlers[eventName].length, eventHandler; i < ii; i++) {
+                eventHandler = newNode._domNodeEventHandlers[eventName][i]
+                if (nodesAreDifferent || eventHandler.isExpandContext) {
+                    newNode.on(eventName, eventHandler, true, false, true)
+                }
+            }
+        }
+    }
+    if (nodesAreDifferent || newNode._hasExpandContextWindowEventHandlers) {
+        for (var eventName in newNode._windowEventHandlers) {
+            for (var i = 0, ii = newNode._windowEventHandlers[eventName].length, eventHandler; i < ii; i++) {
+                eventHandler = newNode._windowEventHandlers[eventName][i]
+                if (nodesAreDifferent || eventHandler.isExpandContext) {
+                    newNode.onWin(eventName, eventHandler, true, false, true)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Extracts keys from object in @arguments
+ * @return Array Array of keys
+ */
+function keysFromObjects () {
+    var keys = []
+    for (var i = 0, ii = arguments.length; i < ii; i++) {
+        if (arguments[i] === undefined) {
+            continue
+        }
+        for (var key in arguments[i]) {
+            if (keys.indexOf(key) === -1) {
+                keys.push(key)
+            }
+        }
+    }
+    return keys
+}
+
+/**
+ * TODO
+ */
+function stringToHash (string) {
+    if (string === '') return ''
+
+    var hash = 0
+    for (var i = 0, ii = string.length; i < ii; i++) {
+        hash = ((hash << 5) - hash + string.charCodeAt(i)) | 0
+    }
+    return hash.toString()
+}
+
+/**
  * BEM node class
  *
  * @nodeName string Starts with capital for block else for elem
@@ -954,59 +1291,56 @@ function ParseNameAndAttrOfBMLNode (text) {
  * @children array  Child nodes
  */
 var BemNode = function (nodeName, attr, children) {
-    this._selector = ''                // BEM-name: 'block' or 'block__elem'
-    this._nodeName = nodeName          // BML-node name
-    this._attr = attr || {}            // BML-node attributes
-    this._isBlock = false              // flag if node is block
-    this._isElem = false               // flag if node is elem
-    this._mod = {}                     // modifiers list
-    this._modHandlers = null           // handlers on modifiers change
-    this._param = {}                   // parameters list
-    this._domNode = null               // DOM-node reference
-    this._domAttr = {}                 // DOM-attributes
-    this._domNodeEventHandlers = null  // DOM-event handlers binded before DOM-node creation
-    this._afterDomInitHandlers = []    // Handlers called after DOM-node inited
-    this._domInited = false            // Flag if DOM-node inited
-    this._parentBlock = null           // parent block bemNode reference
-    this._parentNode = null            // parent bemNode reference
-    this._prevParentNode = null        // previous parent node value when parent node redefined
-    this._children = []                // list of children
-    this._expandedChildren = null      // list of expanded children (for expand method purposes)
-    this._isExpanded = false           // if Bem-node was expanded
-    this._isExpandContext = false      // when flag is true append modifies expandedChildren
-    this._isReplaceContext = false     // when flag is true append don't renders children's DOM
-    this._mix = []                     // list of additional CSS-classes
-    this._tag = 'div'                  // DOM-node name
-    this._noElems = false              // Flag if block can have children
-    this._implementedNode = null       // Node wich this node implements
-    this._css = {}                     // css properties
-    this._decl = null                  // declaration for component
-    this._flattenInherits = null       // array of flattened inherited declarations
-    this._flattenInheritsForDom = null // array of inherited declarations to add as DOM-classes
-    this._renderedOnce = false         // flag if component was rendered at least once
-    this._elems = []                   // array of elements (for block only)
-    this._onWinHandlers = null         // array of pairs: winEventName, handler (for window.removeEventListener)
+    this._selector = ''                     // BEM-name: 'block' or 'block__elem'
+    this._nodeName = nodeName               // BML-node name
+    this._attr = attr || {}                 // BML-node attributes
+    this._isBlock = false                   // flag if node is block
+    this._isElem = false                    // flag if node is elem
+    this._mod = {}                          // modifiers list
+    this._param = {}                        // parameters list
+    this._state = undefined                 // reactive states
+    this._domNode = undefined               // DOM-node reference
+    this._domAttr = {}                      // DOM-attributes
+    this._domNodeEventHandlers = undefined  // DOM event handlers
+    this._windowEventHandlers = undefined   // window event handlers
+    this._modHandlers = undefined           // handlers on modifiers change
+    this._afterDomInitHandlers = []         // Handlers called after DOM-node inited
+    this._domInited = false                 // Flag if DOM-node inited
+    this._parentBlock = undefined           // parent block bemNode reference
+    this._parentNode = undefined            // parent bemNode reference
+    this._prevParentNode = undefined        // previous parent node value when parent node redefined
+    this._children = []                     // list of children
+    this._expandedChildren = undefined      // list of expanded children (for expand method purposes)
+    this._isExpanded = false                // if Bem-node was expanded
+    this._isExpandContext = false           // when flag is true append modifies expandedChildren
+    this._isReplaceContext = false          // when flag is true append don't renders children's DOM
+    this._isRenderStateContext = false      // when flag is true replaceWith don't call render
+    this._isDomInitContext = false          // when flag is true inside domInit functions
+    this._mix = []                          // list of additional CSS classes
+    this._tag = 'div'                       // DOM-node name
+    this._noElems = false                   // Flag if block can have children
+    this._implementedNode = undefined       // Node wich this node implements
+    this._css = {}                          // CSS properties
+    this._cssClasses = undefined            // cached string of CSS classes
+    this._decl = undefined                  // declaration for component
+    this._flattenInherits = undefined       // array of flattened inherited declarations
+    this._flattenInheritsForDom = undefined // array of inherited declarations to add as DOM-classes
+    this._renderedOnce = false              // flag if component was rendered at least once
+    this._elems = []                        // array of elements (for block only)
+    this._hashGlobal = ''
+    this._hashLocal = ''
+    this._linkedNewNode = undefined
 
     // Define if block or elem
     var firstLetter = nodeName.substr(0,1)
     this._isBlock = firstLetter === firstLetter.toUpperCase()
     this._isElem = !this._isBlock
 
-    if (this._isBlock) {
-        // this._selector = nodeName.toLowerCase()
-        // this._decl = Declaration[this._selector]
-        // this._flattenInherits = this._decl && this._decl.__flattenInherits // in case of temporary _decl change
-        // this._parentBlock = this
-        // this._defineUserMethods()
-        this._parentBlock = this
-        this._defineDeclarationBySelector(nodeName.toLowerCase())
-    }
-
     // Define mods, params and special params
     for (var key in this._attr) {
         var firstLetter = key.substr(0,1)
         if (key === '__context') {
-            if (this._parentBlock === null) {
+            if (this._parentBlock === undefined) {
                 this.parentBlock(this._attr.__context)
             }
         } else if (firstLetter === firstLetter.toUpperCase()) {
@@ -1016,6 +1350,12 @@ var BemNode = function (nodeName, attr, children) {
         } else {
             this._param[key.toLowerCase()] = this._attr[key]
         }
+    }
+
+    // Initial operations for block
+    if (this._isBlock) {
+        this._parentBlock = this
+        this._defineDeclarationBySelector(nodeName.toLowerCase())
     }
 
     // Append children
@@ -1032,11 +1372,15 @@ BemNode.prototype = {
         this._decl = Declaration[this._selector]
         this._flattenInherits = this._decl && this._decl.__flattenInherits // in case of temporary _decl change
 
+        if (this._decl && this._decl.state) {
+            this._state = this._decl.state.call(this)
+        }
+
         if (this._flattenInherits) {
             for (var i = 0, ii = this._flattenInherits.length, decl; i < ii; i++) {
                 decl = Declaration[this._flattenInherits[i]]
                 if (!decl || !decl.abstract) {
-                    if (this._flattenInheritsForDom === null) {
+                    if (this._flattenInheritsForDom === undefined) {
                         this._flattenInheritsForDom = []
                     }
                     this._flattenInheritsForDom.push(this._flattenInherits[i])
@@ -1051,7 +1395,7 @@ BemNode.prototype = {
      * Defines user's methods
      */
     _defineUserMethods: function (selector) {
-        var decl = typeof selector !== 'undefined' ? Declaration[selector] : this._decl
+        var decl = selector !== undefined ? Declaration[selector] : this._decl
         if (decl) {
             for (var methodName in decl.__userMethods) {
                 this[methodName] = decl.__userMethods[methodName]
@@ -1066,7 +1410,7 @@ BemNode.prototype = {
         if (this._selector === '' || !Declaration[this._selector]) return
         var userMethods = Declaration[this._selector].__userMethods
         for (var methodName in userMethods) {
-            this[methodName] = null
+            this[methodName] = undefined
         }
     },
 
@@ -1076,7 +1420,7 @@ BemNode.prototype = {
      * @caller function ECMA6 claims caller function link
      */
     inherited: function (caller) {
-        if (caller && typeof caller._inheritedDeclFunction !== 'undefined') {
+        if (caller && caller._inheritedDeclFunction !== undefined) {
             caller._inheritedDeclFunction.apply(
                 this,
                 Array.prototype.splice.call(arguments, 1)
@@ -1136,7 +1480,7 @@ BemNode.prototype = {
      * @return string
      */
     tag: function (tag) {
-        if (typeof tag === 'undefined') {
+        if (tag === undefined) {
             return this._tag
         } else {
             if (!this._domNode) {
@@ -1155,8 +1499,8 @@ BemNode.prototype = {
     css: function (name, value) {
         if (typeof name === 'object') {
             for (var key in name) this.css(key, name[key])
-        } else if (typeof value === 'undefined') {
-            if (this._domNode) {
+        } else if (value === undefined) {
+            if (this._domNode !== undefined && this._css[name] === undefined) {
                 return window.getComputedStyle(this._domNode).getPropertyValue(name)
             } else {
                 return this._css[name]
@@ -1169,7 +1513,7 @@ BemNode.prototype = {
             this._css[name] = value
 
             if (this._domNode) {
-                this._setDomNodeCSS()
+                this._setDomNodeCSS(name)
             }
         }
 
@@ -1251,7 +1595,7 @@ BemNode.prototype = {
      * @bemNode object parent node
      */
     parentNode: function (bemNode) {
-        if (typeof bemNode !== 'undefined') {
+        if (bemNode !== undefined) {
             if (this._renderedOnce) {
                 this.detach()
             }
@@ -1282,8 +1626,8 @@ BemNode.prototype = {
     domAttr: function (name, value, domOnly) {
         if (typeof name === 'object') {
             for (var key in name) this.domAttr(key, name[key])
-        } else if (typeof value === 'undefined') {
-            return this._domAttr[name]
+        } else if (value === undefined) {
+            return this._domNode === undefined ? this._domAttr[name] : this._domNode[name]
         } else {
             if (!domOnly) {
                 this._domAttr[name] = value
@@ -1311,6 +1655,7 @@ BemNode.prototype = {
             this._setDomNodeClasses()
         }
 
+        this._cssClasses = undefined
         return this
     },
 
@@ -1337,7 +1682,7 @@ BemNode.prototype = {
 
         for (var key in defaults) {
             lowerCaseKey = key.toLowerCase()
-            if (typeof actuals[lowerCaseKey] === 'undefined' || actuals[lowerCaseKey] === '') {
+            if (actuals[lowerCaseKey] === undefined || actuals[lowerCaseKey] === '') {
                 actuals[lowerCaseKey] = defaults[key]
             }
         }
@@ -1353,7 +1698,7 @@ BemNode.prototype = {
     },
 
     /**
-     * Sets or gets mod.
+     * Sets or gets mod
      * @name, [@value, [@data]]
      *
      * @name  string         Modifier name
@@ -1361,7 +1706,7 @@ BemNode.prototype = {
      * @data  anything       Additional data
      */
     mod: function (name, value, data) {
-        if (typeof name === 'undefined') {
+        if (name === undefined) {
             return this._mod
         } else if (typeof name === 'string') {
             name = name.toLowerCase()
@@ -1370,9 +1715,10 @@ BemNode.prototype = {
             return this
         }
 
-        if (typeof value === 'undefined') {
+        if (value === undefined) {
             return this._mod[name]
         } else if (this._mod[name] !== value) {
+            this._cssClasses = undefined
             this._mod[name] = value
             if (this._implementedNode) {
                 this._implementedNode._mod[name] = value
@@ -1380,6 +1726,40 @@ BemNode.prototype = {
             if (this._domNode) {
                 this._setDomNodeClasses()
                 this._callModHandlers(name, value, data)
+            }
+        }
+
+        return this
+    },
+
+    /**
+     * Sets or gets state
+     * @name, [@value]
+     *
+     * @name  string   State name
+     * @value anything Modifier value
+     */
+    state: function (name, value, recursiveCall) {
+        if (name === undefined) {
+            return this._state
+        } else if (typeof name === 'string') {
+            name = name.toLowerCase()
+        } else {
+            for (var key in name) this.state(key, name[key], true)
+            this.renderState()
+            return this
+        }
+
+        if (value === undefined) {
+            return this._state[name]
+        } else if (this._state[name] !== value) {
+            if (this._isExpandContext) {
+                console.error('Change state in expand context is not allowed:', name, value)
+            } else {
+                this._state[name] = value
+                if (!recursiveCall) {
+                    this.renderState()
+                }
             }
         }
 
@@ -1411,7 +1791,7 @@ BemNode.prototype = {
      * @value anything
      */
     param: function (name, value) {
-        if (typeof name === 'undefined') {
+        if (name === undefined) {
             return this._param
         } else if (typeof name === 'string') {
             name = name.toLowerCase()
@@ -1420,7 +1800,7 @@ BemNode.prototype = {
             return this
         }
 
-        if (typeof value === 'undefined') {
+        if (value === undefined) {
             return this._param[name]
         } else {
             this._param[name] = value
@@ -1435,27 +1815,46 @@ BemNode.prototype = {
      * @events  string   Space splitted event list: 'click' or 'click keypress'
      * @handler function
      */
-    on: function (event, handler, isSingleEvent) {
-        if (typeof handler !== 'function') return this
+    on: function (event, handler, isSingleEvent, fromDecl, dontCache) {
+        if (typeof handler !== 'function') {
+            return this
+        }
+
+        if (!handler.isBoundToNode) {
+            var handlerOrigin = handler
+            handler = function (e) {
+                handlerOrigin.call(this, e, e.detail)
+            }.bind(this)
+            handler.isBoundToNode = true
+        }
 
         if (!isSingleEvent && event.indexOf(' ') > -1) {
             var events = event.split(' ')
             for (var i = 0, ii = events.length; i < ii; i++) {
-                this.on(events[i], handler, isSingleEvent)
+                this.on(events[i], handler, true)
             }
         } else {
-            if (this._domNode === null) {
-                if (this._domNodeEventHandlers === null) {
+            if (this._domNode !== undefined) {
+                this._domNode.addEventListener(event, handler)
+            }
+
+            if (!dontCache) {
+                if (this._domNodeEventHandlers === undefined) {
                     this._domNodeEventHandlers = {}
                 }
-                if (typeof this._domNodeEventHandlers[event] === 'undefined') {
+                if (this._domNodeEventHandlers[event] === undefined) {
                     this._domNodeEventHandlers[event] = []
                 }
                 this._domNodeEventHandlers[event].push(handler)
-            } else {
-                this._domNode.addEventListener(event, function (e) {
-                    handler.call(this, e, e.detail)
-                }.bind(this))
+            }
+
+            if (this._isExpandContext && !fromDecl) {
+                handler.isExpandContext = true
+                this._hasExpandContextEventHandlers = true
+            }
+            if (this._isDomInitContext) {
+                handler.isDomInitContext = true
+                this._hasDomInitContextEventHandlers = true
             }
         }
 
@@ -1469,21 +1868,48 @@ BemNode.prototype = {
      * @modValue string|boolean
      * @handler  function
      */
-    onWin: function (events, handler) {
-        if (typeof handler !== 'function') return this
-
-        if (this._onWinHandlers === null) {
-            this._onWinHandlers = []
+    onWin: function (event, handler, isSingleEvent, fromDecl, dontCache) {
+        if (typeof handler !== 'function') {
+            return this
         }
 
-        events.split(' ').forEach(function (event) {
-            var winHandler = function (e) {
-                handler.call(this, e, e.detail)
+        if (!handler.isBoundToNode) {
+            var handlerOrigin = handler
+            handler = function (e) {
+                handlerOrigin.call(this, e, e.detail)
             }.bind(this)
+            handler.isBoundToNode = true
+        }
 
-            window.addEventListener(event, winHandler)
-            this._onWinHandlers.push(event, winHandler)
-        }.bind(this))
+        if (!isSingleEvent && event.indexOf(' ') > -1) {
+            var events = event.split(' ')
+            for (var i = 0, ii = events.length; i < ii; i++) {
+                this.onWin(events[i], handler, true)
+            }
+        } else {
+            if (this._domNode !== undefined) {
+                window.addEventListener(event, handler)
+            }
+
+            if (!dontCache) {
+                if (this._windowEventHandlers === undefined) {
+                    this._windowEventHandlers = {}
+                }
+                if (this._windowEventHandlers[event] === undefined) {
+                    this._windowEventHandlers[event] = []
+                }
+                this._windowEventHandlers[event].push(handler)
+            }
+
+            if (this._isExpandContext && !fromDecl) {
+                handler.isExpandContext = true
+                this._hasExpandContextWindowEventHandlers = true
+            }
+            if (this._isDomInitContext) {
+                handler.isDomInitContext = true
+                this._hasDomInitContextWindowEventHandlers = true
+            }
+        }
 
         return this
     },
@@ -1497,6 +1923,12 @@ BemNode.prototype = {
      * @fromDecl boolean Private param for cache
      */
     onMod: function (modName, modValue, handler, fromDecl) {
+
+        if (this._isExpandContext && !fromDecl) {
+            handler.isExpandContext = true
+            this._hasExpandContextModHandlers = true
+        }
+
         // Used in toHtml() method to restore function links
         if (fromDecl) {
             handler.beastDeclPath = 'Beast.declaration["' + this._selector + '"].onMod["' + modName + '"]["' + modValue + '"]'
@@ -1504,13 +1936,13 @@ BemNode.prototype = {
 
         modName = modName.toLowerCase()
 
-        if (this._modHandlers === null) {
+        if (this._modHandlers === undefined) {
             this._modHandlers = {}
         }
-        if (typeof this._modHandlers[modName] === 'undefined') {
+        if (this._modHandlers[modName] === undefined) {
             this._modHandlers[modName] = {}
         }
-        if (typeof this._modHandlers[modName][modValue] === 'undefined') {
+        if (this._modHandlers[modName][modValue] === undefined) {
             this._modHandlers[modName][modValue] = []
         }
         this._modHandlers[modName][modValue].push(handler)
@@ -1649,13 +2081,18 @@ BemNode.prototype = {
         for (var i = 0, ii = this._children.length; i < ii; i++) {
             if (this._children[i] instanceof BemNode) {
                 this._children[i].remove()
+                i--
             }
         }
 
         // Remove window handlers
-        if (this._onWinHandlers !== null) {
-            for (var i = 0, ii = this._onWinHandlers.length; i < ii; i += 2) {
-                window.removeEventListener(this._onWinHandlers[i], this._onWinHandlers[i+1])
+        if (this._windowEventHandlers !== undefined) {
+            for (var eventName in this._windowEventHandlers) {
+                for (var i = 0, ii = this._windowEventHandlers[eventName].length; i < ii; i++) {
+                    window.removeEventListener(
+                        eventName, this._windowEventHandlers[eventName][i]
+                    )
+                }
             }
         }
 
@@ -1677,7 +2114,7 @@ BemNode.prototype = {
             this._parentNode._children.splice(
                 this._parentNode._children.indexOf(this), 1
             )
-            this._parentNode = null
+            this._parentNode = undefined
         }
 
         this._removeFromParentBlockElems()
@@ -1697,7 +2134,7 @@ BemNode.prototype = {
         for (var i = 0, ii = children.length; i < ii; i++) {
             var child = children[i]
 
-            if (child === false || child === null || typeof child === 'undefined') {
+            if (child === false || child === null || child === undefined) {
                 continue
             } else if (Array.isArray(child)) {
                 this.insertChild(child, index)
@@ -1707,7 +2144,7 @@ BemNode.prototype = {
                 if (child._isElem) {
                     if (this._isBlock) {
                         child.parentBlock(this)
-                    } else if (this._parentBlock !== null) {
+                    } else if (this._parentBlock !== undefined) {
                         child.parentBlock(this._parentBlock)
                     }
                 }
@@ -1718,7 +2155,7 @@ BemNode.prototype = {
             var childrenToChange = this._children
 
             if (this._isExpandContext) {
-                if (this._expandedChildren === null) {
+                if (this._expandedChildren === undefined) {
                     this._expandedChildren = []
                 }
                 childrenToChange = this._expandedChildren
@@ -1788,7 +2225,7 @@ BemNode.prototype = {
 
     /**
      * Replaces current bemNode with the new
-     * @bemNode BemNode Node that replaces
+     * @bemNode   BemNode Node that replaces
      * @ignoreDom boolean Private flag - do not change DOM; used in toHtml() method
      */
     replaceWith: function (bemNode, ignoreDom) {
@@ -1813,13 +2250,15 @@ BemNode.prototype = {
             parentNode._children = parentNode._children.concat(siblingsAfter)
         }
 
-        this._parentNode = null
+        this._parentNode = undefined
 
         if (bemNode instanceof BemNode) {
             if (bemNode._isBlock) {
                 bemNode._resetParentBlockForChildren()
             }
-            if (!ignoreDom) {
+            if (this._isRenderStateContext) {
+                bemNode._expandForRenderState(true)
+            } else if (!ignoreDom) {
                 bemNode.render()
             }
         }
@@ -1844,19 +2283,23 @@ BemNode.prototype = {
      * @ignoreDom boolean Private flag - do not change DOM; used in toHtml() method
      */
     implementWith: function (bemNode, ignoreDom) {
+        this._cssClasses = undefined
 
-        if (this._domNodeEventHandlers !== null) {
-            if (bemNode._domNodeEventHandlers === null) {
-                bemNode._domNodeEventHandlers = this._domNodeEventHandlers
-            } else {
-                bemNode._domNodeEventHandlers = bemNode._domNodeEventHandlers.concat(
-                    this._domNodeEventHandlers
-                )
-            }
+        if (this._domNodeEventHandlers !== undefined) {
+            bemNode._domNodeEventHandlers = bemNode._domNodeEventHandlers === undefined
+                ? this._domNodeEventHandlers
+                : bemNode._domNodeEventHandlers.concat(this._domNodeEventHandlers)
+        }
+
+        if (this._windowEventHandlers !== undefined) {
+            bemNode._windowEventHandlers = bemNode._windowEventHandlers === undefined
+                ? this._windowEventHandlers
+                : bemNode._windowEventHandlers.concat(this._windowEventHandlers)
         }
 
         this._setDomNodeClasses()
         bemNode._implementedNode = this
+        this._implementedWith = bemNode
         bemNode._extendProperty('_mod', this._mod)
         bemNode._extendProperty('_param', this._param)
         this._extendProperty('_mod', bemNode._mod)
@@ -1886,7 +2329,9 @@ BemNode.prototype = {
      * Gets elements by name
      */
     elem: function () {
-        if (this._isElem) return
+        if (this._isElem) {
+            return this.elem.apply(this._parentBlock, arguments)
+        }
 
         if (arguments.length === 0) {
             return this._elems
@@ -1896,7 +2341,7 @@ BemNode.prototype = {
         for (var i = 0, ii = this._elems.length, elem; i < ii; i++) {
             elem = this._elems[i]
             for (var j = 0, jj = arguments.length, elemName; j < jj; j++) {
-                elemName = arguments[j].toLowerCase()
+                elemName = arguments[j]
                 if (elem._nodeName === elemName ||
                     elem._implementedNode && elem._implementedNode._nodeName === elemName
                 ) {
@@ -2035,7 +2480,7 @@ BemNode.prototype = {
             }
         }
 
-        if (typeof parentNodeOfClone !== 'undefined') {
+        if (parentNodeOfClone !== undefined) {
             clone._parentNode = parentNodeOfClone
         }
 
@@ -2049,6 +2494,7 @@ BemNode.prototype = {
      * @parentDOMNode object Parent for the root node attaching
      */
     render: function (parentDOMNode) {
+
         // Call expand handler
         if (!this._isExpanded && this._decl && this._decl.__commonExpand) {
             this._isExpandContext = true
@@ -2083,7 +2529,7 @@ BemNode.prototype = {
                 this._domNode,
                 this._parentNode._domNode.childNodes[
                     this.index(true)
-                ]
+                ] || null
             )
         }
 
@@ -2101,10 +2547,17 @@ BemNode.prototype = {
             }
 
             // Add event handlers
-            if (this._domNodeEventHandlers !== null) {
+            if (this._domNodeEventHandlers !== undefined) {
                 for (var eventName in this._domNodeEventHandlers) {
                     for (var i = 0, ii = this._domNodeEventHandlers[eventName].length; i < ii; i++) {
-                        this.on(eventName, this._domNodeEventHandlers[eventName][i], true)
+                        this.on(eventName, this._domNodeEventHandlers[eventName][i], true, false, true)
+                    }
+                }
+            }
+            if (this._windowEventHandlers !== undefined) {
+                for (var eventName in this._windowEventHandlers) {
+                    for (var i = 0, ii = this._windowEventHandlers[eventName].length; i < ii; i++) {
+                        this.onWin(eventName, this._windowEventHandlers[eventName][i], true, false, true)
                     }
                 }
             }
@@ -2137,7 +2590,7 @@ BemNode.prototype = {
         } else {
             this._domNode.insertBefore(
                 document.createTextNode(child),
-                this._domNode.childNodes[index]
+                this._domNode.childNodes[index] || null
             )
         }
     },
@@ -2149,15 +2602,45 @@ BemNode.prototype = {
     _completeExpand: function () {
         if (this._isExpandContext && this._expandedChildren) {
             this._children = this._expandedChildren
-            this._expandedChildren = null
+            this._expandedChildren = undefined
         }
         this._isExpanded = true
+    },
+
+    /**
+     * Calcs hash ID for Beast.patchDom algo
+     */
+    _updateHash: function () {
+        var string = this._tag + ' class="' + this._setDomNodeClasses(true) + '"'
+
+        // for (var attrName in this._domAttr) {
+        //     string += ' ' + attrName + '="' + this._domAttr[attrName] + '"'
+        // }
+
+        // for (var propName in this._css) {
+        //     string += ' ' + propName + ':' + this._css[propName]
+        // }
+
+        this._hashLocal = stringToHash(string)
+
+        for (var i = 0, ii = this._children.length; i < ii; i++) {
+            if (typeof this._children[i] === 'string') {
+                string += this._children[i]
+            } else {
+                this._children[i]._updateHash()
+                string += this._children[i]._hashGlobal
+            }
+        }
+
+        this._hashGlobal = stringToHash(string)
     },
 
     /**
      * Initial instructions for the DOM-element
      */
     _domInit: function () {
+        this._isDomInitContext = true
+
         var decl = this._decl
         if (decl) {
             decl.__commonDomInit && decl.__commonDomInit.call(this)
@@ -2167,6 +2650,7 @@ BemNode.prototype = {
             decl.__commonDomInit && decl.__commonDomInit.call(this)
         }
 
+        this._isDomInitContext = false
         this._domInited = true
 
         if (this._afterDomInitHandlers.length !== 0) {
@@ -2186,7 +2670,7 @@ BemNode.prototype = {
     _callModHandlers: function (modName, modValue, data, context) {
         var handlers
 
-        if (this._modHandlers !== null && this._modHandlers[modName]) {
+        if (this._modHandlers !== undefined && this._modHandlers[modName]) {
             if (this._modHandlers[modName][modValue]) {
                 handlers = this._modHandlers[modName][modValue]
             } else if (modValue === false && this._modHandlers[modName]['']) {
@@ -2204,7 +2688,7 @@ BemNode.prototype = {
         }
 
         if (handlers) {
-            if (typeof context === 'undefined') context = this
+            if (context === undefined) context = this
             for (var i = 0, ii = handlers.length; i < ii; i++) {
                 handlers[i].call(context, data)
             }
@@ -2219,61 +2703,75 @@ BemNode.prototype = {
      * Sets DOM classes
      */
     _setDomNodeClasses: function (returnClassNameOnly) {
-        var className = this._selector
-        var value
-        var tail
-
-        if (this._flattenInheritsForDom) {
-            for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
-                className += ' ' + this._flattenInheritsForDom[i]
-            }
-        }
-
-        if (this._mix.length !== 0) {
-            for (var i = 0, ii = this._mix.length; i < ii; i++) {
-                className += ' ' + this._mix[i]
-            }
-        }
-
-        for (var key in this._mod) {
-            value = this._mod[key]
-            if (value === '' || value === false) continue
-
-            tail = value === true
-                ? '_' + key
-                : '_' + key + '_' + value
-
-            className += ' ' + this._selector + tail
+        if (this._cssClasses === undefined) {
+            var className = this._selector
+            var value
+            var tail
 
             if (this._flattenInheritsForDom) {
                 for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
-                    className += ' ' + this._flattenInheritsForDom[i] + tail
+                    className += ' ' + this._flattenInheritsForDom[i]
                 }
             }
-        }
 
-        if (this._implementedNode) {
-            className += ' ' + this._implementedNode._setDomNodeClasses(true)
+            if (this._mix.length !== 0) {
+                for (var i = 0, ii = this._mix.length; i < ii; i++) {
+                    className += ' ' + this._mix[i]
+                }
+            }
+
+            for (var key in this._mod) {
+                value = this._mod[key]
+                if (value === '' || value === false) continue
+
+                tail = value === true
+                    ? '_' + key
+                    : '_' + key + '_' + value
+
+                className += ' ' + this._selector + tail
+
+                if (this._flattenInheritsForDom) {
+                    for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
+                        className += ' ' + this._flattenInheritsForDom[i] + tail
+                    }
+                }
+            }
+
+            if (this._implementedNode) {
+                className += ' ' + this._implementedNode._setDomNodeClasses(true)
+            }
+
+            this._cssClasses = className
         }
 
         if (returnClassNameOnly) {
-            return className
+            return this._cssClasses
         } else {
             if (this._domNode) {
-                this._domNode.className = className
+                this._assignDomClasses.call(this)
             }
         }
+    },
+
+    _assignDomClasses: function () {
+        this._domNode.className = this._cssClasses
     },
 
     /**
      * Sets DOM CSS
      */
-    _setDomNodeCSS: function () {
-        for (var name in this._css) {
-            if (this._css[name] || this._css[name] === 0) {
-                this._domNode.style[name] = this._css[name]
-                window.getComputedStyle(this._domNode)[name]
+    _setDomNodeCSS: function (propertyToChange, isAnimationFrame) {
+        if (isAnimationFrame) {
+            for (var name in this._css) {
+                if (propertyToChange !== undefined && propertyToChange !== name) {
+                    continue
+                }
+                if (this._css[name] || this._css[name] === 0 || this._css[name] === '') {
+                    this._domNode.style[name] = this._css[name]
+                }
             }
+        } else {
+            this._setDomNodeCSS.call(this, propertyToChange, true)
         }
     },
 
@@ -2314,7 +2812,7 @@ BemNode.prototype = {
 
         return 'Beast.node(' +
             '"'+ this._nodeName + '",' +
-            (attr === '{}' ? 'null' : attr) +
+            (attr === '{}' ? 'undefined' : attr) +
             (children ? ',' + children + ')' : ')')
     },
 
@@ -2376,7 +2874,7 @@ BemNode.prototype = {
         if (this._afterDomInitHandlers.length !== 0) {
             attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(this._afterDomInitHandlers)) + '"'
         }
-        if (this._implementedNode !== null) {
+        if (this._implementedNode !== undefined) {
             attrs += ' data-implemented-node-name="' + this._implementedNode._nodeName + '"'
         }
 
@@ -2435,6 +2933,132 @@ BemNode.prototype = {
         }
 
         return this
+    },
+
+    /**
+     * Rerenders BemNode after state change
+     */
+    renderState: function () {
+        // Clone itself
+        var clone = {}
+        clone.__proto__ = this.__proto__
+        for (var i in this) {
+            if (
+                i === '_css' || i === '_domAttr' || i === '_mod' ||
+                i === '_modHandlers' || i === '_domNodeEventHandlers' || i === '_windowEventHandlers'
+            ) {
+                clone[i] = cloneObject(this[i])
+            }
+            else {
+                clone[i] = this[i]
+            }
+        }
+        for (var i = 0, ii = clone._children.length; i < ii; i++) {
+            if (clone._children[i] instanceof BemNode) {
+                clone._children[i]._parentNode = clone
+            }
+        }
+
+        // Remove handlers added in expand context
+        if (this._modHandlers !== undefined) {
+            for (var name in this._modHandlers) {
+                for (var value in this._modHandlers[name]) {
+                    for (var i = 0, ii = this._modHandlers[name][value].length; i < ii; i++) {
+                        if (this._modHandlers[name][value][i].isExpandContext) {
+                            this._modHandlers[name][value].splice(i,1)
+                            i--
+                            ii--
+                        }
+                    }
+                }
+            }
+        }
+        if (this._domNodeEventHandlers !== undefined) {
+            for (var eventName in this._domNodeEventHandlers) {
+                for (var i = 0, ii = this._domNodeEventHandlers[eventName].length; i < ii; i++) {
+                    if (this._domNodeEventHandlers[eventName][i].isExpandContext) {
+                        if (this._domNode !== undefined) {
+                            this._domNode.removeEventListener(eventName, this._domNodeEventHandlers[eventName][i])
+                        }
+                        this._domNodeEventHandlers[eventName].splice(i,1)
+                        i--
+                        ii--
+                    }
+                }
+            }
+        }
+        if (this._windowEventHandlers !== undefined) {
+            for (var eventName in this._windowEventHandlers) {
+                for (var i = 0, ii = this._windowEventHandlers[eventName].length; i < ii; i++) {
+                    if (this._windowEventHandlers[eventName][i].isExpandContext) {
+                        window.removeEventListener(
+                            eventName, this._windowEventHandlers[eventName][i]
+                        )
+                        this._windowEventHandlers[eventName].splice(i,1)
+                        i--
+                        ii--
+                    }
+                }
+            }
+        }
+
+        // Detach DOM node and children
+        this._domNode = undefined
+        this._children = []
+        this._elems = []
+        this._implementedNode = undefined
+        this._isExpanded = false
+        this._hasExpandContextEventHandlers = false
+        this._hasExpandContextWindowEventHandlers = false
+        this._hasExpandContextModHandlers = false
+        this._hasDomInitContextWindowEventHandlers = false
+        this._renderedOnce = false
+
+        // Expand
+        this._expandForRenderState()
+
+        // Update nodes hashes
+        this._updateHash()
+        clone._updateHash()
+
+        // Patch DOM
+        Beast.patchDom(clone._domNode.parentNode, this, clone)
+        this._domInit(true)
+
+        // Event
+        this.trigger('DidRenderState')
+    },
+
+    /**
+     * Recursive expanding BemNodes
+     * isNewNode boolean If node is new call compilated expand else call expand from decl
+     */
+    _expandForRenderState: function (isNewNode) {
+        this._isRenderStateContext = true
+
+        // Expand itself
+        if (this._decl && (this._decl.expand || this._decl.__commonExpand)) {
+            this._isExpandContext = true
+            if (isNewNode) {
+                this._decl.__commonExpand.call(this)
+            } else {
+                this._decl.expand.call(this)
+            }
+            this._completeExpand()
+            this._isExpandContext = false
+        }
+
+        // Could be detached from parent when implemented with other node
+        if (this._parentNode !== undefined) {
+            // Expand children
+            for (var i = 0, ii = this._children.length; i < ii; i++) {
+                if (this._children[i] instanceof BemNode) {
+                    this._children[i]._expandForRenderState(true)
+                }
+            }
+        }
+
+        this._isRenderStateContext = false
     }
 }
 
