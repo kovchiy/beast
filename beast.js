@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.21
+ * @version 0.24.25
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -554,10 +554,10 @@ function CompileDeclarations () {
             }
             flattenInherits.push(selector)
 
-            if (inheritedDecl) {
+            if (inheritedDecl !== undefined) {
                 extend(decl, inheritedDecl)
 
-                if (inheritedDecl.inherits) {
+                if (inheritedDecl.inherits !== undefined) {
                     inherit(decl, inheritedDecl.inherits, flattenInherits)
                 }
             }
@@ -569,47 +569,37 @@ function CompileDeclarations () {
     for (var selector in Declaration) (function (decl) {
 
         // Extend decl with inherited rules
-        if (decl.inherits) {
+        if (decl.inherits !== undefined) {
             var flattenInherits = inherit(decl, decl.inherits)
             decl.__flattenInherits = flattenInherits
         }
 
         // Compile expand rules to methods array
         var expandHandlers = []
-        if (decl.expand) {
+        if (decl.expand !== undefined) {
             expandHandlers.unshift(decl.expand)
         }
-        if (decl.param) {
-            expandHandlers.unshift(function () {
-                this.defineParam(decl.param)
-            })
-        }
-        if (decl.mod) {
-            expandHandlers.unshift(function () {
-                this.defineMod(decl.mod)
-            })
-        }
-        if (decl.mix) {
+        if (decl.mix !== undefined) {
             expandHandlers.unshift(function () {
                 this.mix.apply(this, decl.mix)
             })
         }
-        if (decl.tag) {
+        if (decl.tag !== undefined) {
             expandHandlers.unshift(function () {
                 this.tag(decl.tag)
             })
         }
-        if (decl.noElems) {
+        if (decl.noElems !== undefined) {
             expandHandlers.unshift(function () {
                 this.noElems()
             })
         }
-        if (decl.domAttr) {
+        if (decl.domAttr !== undefined) {
             expandHandlers.unshift(function () {
                 this.domAttr(decl.domAttr)
             })
         }
-        if (decl.onMod) {
+        if (decl.onMod !== undefined) {
             expandHandlers.unshift(function () {
                 for (var modName in decl.onMod) {
                     for (var modValue in decl.onMod[modName]) {
@@ -618,14 +608,14 @@ function CompileDeclarations () {
                 }
             })
         }
-        if (decl.on) {
+        if (decl.on !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.on) {
                     this.on(events, decl.on[events], false, true)
                 }
             })
         }
-        if (decl.onWin) {
+        if (decl.onWin !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.onWin) {
                     this.onWin(events, decl.onWin[events], false, true)
@@ -635,7 +625,7 @@ function CompileDeclarations () {
 
         // Compile domInit rules to methods array
         var domInitHandlers = []
-        if (decl.domInit) {
+        if (decl.domInit !== undefined) {
             domInitHandlers.unshift(decl.domInit)
         }
 
@@ -1368,22 +1358,65 @@ BemNode.prototype = {
      * Defines declaraion
      */
     _defineDeclarationBySelector: function (selector) {
+
+        // Rerset old mods, params and state when declaration redefined
+        if (this._decl !== undefined) {
+            if (this._decl.mod !== undefined) {
+                var nameLC
+                for (var name in this._decl.mod) {
+                    nameLC = name.toLowerCase()
+                    if (this._mod[nameLC] === this._decl.mod[name]) {
+                        this._mod[nameLC] = undefined
+                    }
+                }
+            }
+            if (this._decl.param !== undefined) {
+                var nameLC
+                for (var name in this._decl.param) {
+                    nameLC = name.toLowerCase()
+                    if (this._param[nameLC] === this._decl.param[name]) {
+                        this._param[nameLC] = undefined
+                    }
+                }
+            }
+            if (this._decl.state !== undefined) {
+                this._state = undefined
+            }
+        }
+
         this._selector = selector
         this._decl = Declaration[this._selector]
         this._flattenInherits = this._decl && this._decl.__flattenInherits // in case of temporary _decl change
+        this._flattenInheritsForDom = undefined
 
-        if (this._decl && this._decl.state) {
-            this._state = this._decl.state.call(this)
+        if (this._decl !== undefined) {
+            if (this._decl.mod !== undefined) {
+                this.defineMod(this._decl.mod)
+            }
+            if (this._decl.param !== undefined) {
+                this.defineParam(this._decl.param)
+            }
+            if (this._decl.state !== undefined) {
+                this._state = this._decl.state.call(this)
+            }
         }
 
-        if (this._flattenInherits) {
+        if (this._flattenInherits !== undefined) {
             for (var i = 0, ii = this._flattenInherits.length, decl; i < ii; i++) {
                 decl = Declaration[this._flattenInherits[i]]
-                if (!decl || !decl.abstract) {
+                if (decl === undefined || decl.abstract === undefined) {
                     if (this._flattenInheritsForDom === undefined) {
                         this._flattenInheritsForDom = []
                     }
                     this._flattenInheritsForDom.push(this._flattenInherits[i])
+                }
+                else if (decl !== undefined) {
+                    if (decl.mod !== undefined) {
+                        this.defineMod(decl.mod)
+                    }
+                    if (decl.param !== undefined) {
+                        this.defineParam(decl.param)
+                    }
                 }
             }
         }
@@ -1549,7 +1582,7 @@ BemNode.prototype = {
                 && bemNode instanceof BemNode
                 && bemNode !== this._parentBlock) {
 
-                if (bemNode._parentBlock && bemNode._parentBlock._noElems) {
+                if (bemNode._parentBlock !== undefined && bemNode._parentBlock._noElems) {
                     return this.parentBlock(bemNode._parentNode, dontAffectChildren)
                 }
 
