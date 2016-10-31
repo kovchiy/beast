@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.25
+ * @version 0.24.26
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1708,14 +1708,14 @@ BemNode.prototype = {
      * @propertyName string
      * @defaults     object
      */
-    _extendProperty: function (propertyName, defaults)
+    _extendProperty: function (propertyName, defaults, force)
     {
         var actuals = this[propertyName]
         var lowerCaseKey
 
         for (var key in defaults) {
             lowerCaseKey = key.toLowerCase()
-            if (actuals[lowerCaseKey] === undefined || actuals[lowerCaseKey] === '') {
+            if (force === true || actuals[lowerCaseKey] === undefined || actuals[lowerCaseKey] === '') {
                 actuals[lowerCaseKey] = defaults[key]
             }
         }
@@ -2333,8 +2333,8 @@ BemNode.prototype = {
         this._setDomNodeClasses()
         bemNode._implementedNode = this
         this._implementedWith = bemNode
-        bemNode._extendProperty('_mod', this._mod)
-        bemNode._extendProperty('_param', this._param)
+        bemNode._extendProperty('_mod', this._mod, true)
+        bemNode._extendProperty('_param', this._param, true)
         this._extendProperty('_mod', bemNode._mod)
         bemNode._defineUserMethods(this._selector)
         this.replaceWith(bemNode, ignoreDom)
