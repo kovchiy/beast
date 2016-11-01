@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.26
+ * @version 0.24.27
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1992,7 +1992,7 @@ BemNode.prototype = {
     trigger: function (eventName, data) {
         if (this._domNode) {
             this._domNode.dispatchEvent(
-                data
+                data !== undefined
                     ? new CustomEvent(eventName, {detail:data})
                     : new Event(eventName)
             )
