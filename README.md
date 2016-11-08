@@ -1339,6 +1339,6 @@ Beast.node('Button', {'Size':'M', 'href':'#foo'}, 'Перейти')
 <a name="more"/>
 ## Дальнейшая работа
 
-Практические советы, механизмы оптимальной организации сложных связей между компонентами, принятый codestyle, разработка проекта с чистого листа — всё это описывает учебник [Beast Practice](https://github.yandex-team.ru/kovchiy/beast-practice/blob/master/README.md). 
+Практические советы, механизмы оптимальной организации сложных связей между компонентами, принятый codestyle, разработка проекта с чистого листа — всё это описывает учебник [Beast Practice](/docs/beast-practice/blob/master/README.md). 
 
 Welcome home, good hunter.
