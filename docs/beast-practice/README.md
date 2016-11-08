@@ -1,4 +1,4 @@
-![](/img/title-image.jpg)
+![](img/title-image.jpg)
 
 # Beast Practice
 
