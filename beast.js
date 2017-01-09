@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.27
+ * @version 0.24.29
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1390,6 +1390,7 @@ BemNode.prototype = {
         this._flattenInheritsForDom = undefined
 
         if (this._decl !== undefined) {
+
             if (this._decl.mod !== undefined) {
                 this.defineMod(this._decl.mod)
             }
@@ -1711,12 +1712,12 @@ BemNode.prototype = {
     _extendProperty: function (propertyName, defaults, force)
     {
         var actuals = this[propertyName]
-        var lowerCaseKey
+        var keyLC
 
         for (var key in defaults) {
-            lowerCaseKey = key.toLowerCase()
-            if (force === true || actuals[lowerCaseKey] === undefined || actuals[lowerCaseKey] === '') {
-                actuals[lowerCaseKey] = defaults[key]
+            keyLC = key.toLowerCase()
+            if ((force === true && defaults[key] !== undefined) || actuals[keyLC] === undefined || actuals[keyLC] === '') {
+                actuals[keyLC] = defaults[key]
             }
         }
 
@@ -1807,7 +1808,9 @@ BemNode.prototype = {
      * @value2 string|boolean Modifier value 2
      */
     toggleMod: function (name, value1, value2) {
-        if (!this.mod(name) || this.mod(name) === value2) {
+        if (!this.mod(name)) {
+            this.mod(name, value1)
+        } else if (this.mod(name) === value2) {
             this.mod(name, value1)
         } else {
             this.mod(name, value2)
@@ -2755,7 +2758,7 @@ BemNode.prototype = {
 
             for (var key in this._mod) {
                 value = this._mod[key]
-                if (value === '' || value === false) continue
+                if (value === '' || value === false || value === undefined) continue
 
                 tail = value === true
                     ? '_' + key
