@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.29
+ * @version 0.24.30
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1754,10 +1754,11 @@ BemNode.prototype = {
         } else if (this._mod[name] !== value) {
             this._cssClasses = undefined
             this._mod[name] = value
-            if (this._implementedNode) {
+            if (this._implementedNode !== undefined) {
+                this._implementedNode._cssClasses = undefined
                 this._implementedNode._mod[name] = value
             }
-            if (this._domNode) {
+            if (this._domNode !== undefined) {
                 this._setDomNodeClasses()
                 this._callModHandlers(name, value, data)
             }
@@ -2333,6 +2334,12 @@ BemNode.prototype = {
                 : bemNode._windowEventHandlers.concat(this._windowEventHandlers)
         }
 
+        if (this._modHandlers !== undefined) {
+            bemNode._modHandlers = bemNode._modHandlers === undefined
+                ? this._modHandlers
+                : bemNode._modHandlers.concat(this._modHandlers)
+        }
+
         this._setDomNodeClasses()
         bemNode._implementedNode = this
         this._implementedWith = bemNode
@@ -2703,19 +2710,19 @@ BemNode.prototype = {
      * @modValue string
      * @data     object Additional data for handler
      */
-    _callModHandlers: function (modName, modValue, data, context) {
+    _callModHandlers: function (modName, modValue, data) {
         var handlers
 
-        if (this._modHandlers !== undefined && this._modHandlers[modName]) {
-            if (this._modHandlers[modName][modValue]) {
+        if (this._modHandlers !== undefined && this._modHandlers[modName] !== undefined) {
+            if (this._modHandlers[modName][modValue] !== undefined) {
                 handlers = this._modHandlers[modName][modValue]
-            } else if (modValue === false && this._modHandlers[modName]['']) {
+            } else if (modValue === false && this._modHandlers[modName][''] !== undefined) {
                 handlers = this._modHandlers[modName]['']
-            } else if (modValue === '' && this._modHandlers[modName][false]) {
+            } else if (modValue === '' && this._modHandlers[modName][false] !== undefined) {
                 handlers = this._modHandlers[modName][false]
             }
-            if (this._modHandlers[modName]['*']) {
-                if (handlers) {
+            if (this._modHandlers[modName]['*'] !== undefined) {
+                if (handlers !== undefined) {
                     handlers = handlers.concat(this._modHandlers[modName]['*'])
                 } else {
                     handlers = this._modHandlers[modName]['*']
@@ -2723,15 +2730,10 @@ BemNode.prototype = {
             }
         }
 
-        if (handlers) {
-            if (context === undefined) context = this
+        if (handlers !== undefined) {
             for (var i = 0, ii = handlers.length; i < ii; i++) {
-                handlers[i].call(context, data)
+                handlers[i].call(this, data)
             }
-        }
-
-        if (this._implementedNode) {
-            this._implementedNode._callModHandlers(modName, modValue, data, this)
         }
     },
 
@@ -2744,7 +2746,7 @@ BemNode.prototype = {
             var value
             var tail
 
-            if (this._flattenInheritsForDom) {
+            if (this._flattenInheritsForDom !== undefined) {
                 for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
                     className += ' ' + this._flattenInheritsForDom[i]
                 }
@@ -2773,7 +2775,7 @@ BemNode.prototype = {
                 }
             }
 
-            if (this._implementedNode) {
+            if (this._implementedNode !== undefined) {
                 className += ' ' + this._implementedNode._setDomNodeClasses(true)
             }
 
