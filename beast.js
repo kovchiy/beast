@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.30
+ * @version 0.24.31
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1859,10 +1859,12 @@ BemNode.prototype = {
 
         if (!handler.isBoundToNode) {
             var handlerOrigin = handler
-            handler = function (e) {
+            var handlerWrap = function (e) {
                 handlerOrigin.call(this, e, e.detail)
-            }.bind(this)
+            }
+            handler = handlerWrap.bind(this)
             handler.isBoundToNode = true
+            handler.unbindedHandler = handlerWrap
         }
 
         if (!isSingleEvent && event.indexOf(' ') > -1) {
@@ -2082,10 +2084,10 @@ BemNode.prototype = {
             parentBlock = this._implementedNode._parentBlock
         }
 
-        if (parentBlock) {
-            for (var i = 0, ii = this._parentBlock._elems.length; i < ii; i++) {
-                if (this._parentBlock._elems[i] === this) {
-                    this._parentBlock._elems.splice(i, 1)
+        if (parentBlock !== undefined) {
+            for (var i = 0, ii = parentBlock._elems.length; i < ii; i++) {
+                if (parentBlock._elems[i] === this) {
+                    parentBlock._elems.splice(i, 1)
                     break
                 }
             }
@@ -2325,19 +2327,25 @@ BemNode.prototype = {
         if (this._domNodeEventHandlers !== undefined) {
             bemNode._domNodeEventHandlers = bemNode._domNodeEventHandlers === undefined
                 ? this._domNodeEventHandlers
-                : bemNode._domNodeEventHandlers.concat(this._domNodeEventHandlers)
+                : console.error('TODO: Extend handler objects')
+
+            for (var key in bemNode._domNodeEventHandlers) {
+                for (var i = 0, ii = bemNode._domNodeEventHandlers[key].length; i < ii; i++) {
+                    bemNode._domNodeEventHandlers[key][i] = bemNode._domNodeEventHandlers[key][i].unbindedHandler.bind(bemNode)
+                }
+            }
         }
 
         if (this._windowEventHandlers !== undefined) {
             bemNode._windowEventHandlers = bemNode._windowEventHandlers === undefined
                 ? this._windowEventHandlers
-                : bemNode._windowEventHandlers.concat(this._windowEventHandlers)
+                : console.error('TODO: Extend handler objects')
         }
 
         if (this._modHandlers !== undefined) {
             bemNode._modHandlers = bemNode._modHandlers === undefined
                 ? this._modHandlers
-                : bemNode._modHandlers.concat(this._modHandlers)
+                : console.error('TODO: Extend handler objects')
         }
 
         this._setDomNodeClasses()
