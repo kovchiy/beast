@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.24.31
+ * @version 0.25.0
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -435,23 +435,25 @@ Beast.domInit = function (domNode, isInnerCall) {
 
 /**
  * Declaration standart fields:
- * - inherits string|array Inherited declarations by selector
- * - expand   function     Expand instructions
- * - mod      object       Default modifiers
- * - noElems  object       If block can have elements
- * - param    object       Default parameters
- * - domInit  function     DOM inititial instructions
- * - on       object       Event handlers
- * - onWin    object       Window event hadnlers
- * - onMod    object       Modifier change actions
- * - tag      string       DOM tag name
+ * - inherits       string|array Inherited declarations by selector
+ * - expand         function     Expand instructions
+ * - mod            object       Default modifiers
+ * - noElems        object       If block can have elements
+ * - param          object       Default parameters
+ * - domInit        function     DOM inititial instructions
+ * - on             object       Event handlers
+ * - onWin          object       Window event hadnlers
+ * - onMod          object       Modifier change actions
+ * - tag            string       DOM tag name
  *
  * @selector string 'block' or 'block__elem'
  * @decl     object
  */
 Beast.decl = function (selector, decl) {
     if (typeof selector === 'object') {
-        for (var key in selector) Beast.decl(key, selector[key])
+        for (var key in selector) {
+            Beast.decl(key, selector[key])
+        }
         return this
     } else {
         selector = selector.toLowerCase()
@@ -465,9 +467,16 @@ Beast.decl = function (selector, decl) {
         decl.mix = [decl.mix]
     }
 
-    if (decl.inherits) {
+    if (decl.inherits !== undefined) {
         for (var i = 0, ii = decl.inherits.length; i < ii; i++) {
             decl.inherits[i] = decl.inherits[i].toLowerCase()
+
+            if (decl.inherits[i].indexOf(' ') !== -1) {
+                var inherits = decl.inherits[i].split(' ')
+                decl.inherits.push(inherits[0], inherits)
+                decl.inherits.splice(i, 1)
+                ii--
+            }
         }
     }
 
@@ -544,21 +553,32 @@ function CompileDeclarations () {
         }
     }
 
-    function inherit (decl, inheritedDecls, flattenInherits) {
+    function inherit (declSelector, decl, inheritedDecls, flattenInherits) {
         for (var i = inheritedDecls.length-1; i >= 0; i--) {
-            var selector = inheritedDecls[i]
-            var inheritedDecl = Declaration[selector]
+            if (typeof inheritedDecls[i] === 'string') {
+                var selector = inheritedDecls[i]
+                var inheritedDecl = Declaration[selector]
 
-            if (flattenInherits === undefined) {
-                flattenInherits = []
-            }
-            flattenInherits.push(selector)
+                if (flattenInherits === undefined) {
+                    flattenInherits = []
+                }
+                flattenInherits.push(selector)
 
-            if (inheritedDecl !== undefined) {
-                extend(decl, inheritedDecl)
+                if (inheritedDecl !== undefined) {
+                    extend(decl, inheritedDecl)
 
-                if (inheritedDecl.inherits !== undefined) {
-                    inherit(decl, inheritedDecl.inherits, flattenInherits)
+                    if (inheritedDecl.inherits !== undefined) {
+                        inherit(declSelector, decl, inheritedDecl.inherits, flattenInherits)
+                    }
+                }
+            } else {
+                var inheritedElems = inheritedDecls[i]
+                var blockName = inheritedElems.shift()
+                for (var j = 0, jj = inheritedElems.length, aSelector, bSelector; j < jj; j++) {
+                    aSelector = declSelector + '__' + inheritedElems[j]
+                    bSelector = blockName + '__' + inheritedElems[j]
+                    Beast.decl(aSelector, {inherits: bSelector})
+                    generatedDeclSelectors.push(aSelector)
                 }
             }
         }
@@ -566,11 +586,12 @@ function CompileDeclarations () {
         return flattenInherits
     }
 
-    for (var selector in Declaration) (function (decl) {
+    var generatedDeclSelectors = []
+    var forEachSelector = function (decl, selector) {
 
         // Extend decl with inherited rules
         if (decl.inherits !== undefined) {
-            var flattenInherits = inherit(decl, decl.inherits)
+            var flattenInherits = inherit(selector, decl, decl.inherits)
             decl.__flattenInherits = flattenInherits
         }
 
@@ -641,7 +662,20 @@ function CompileDeclarations () {
             }
         }
 
-    })(Declaration[selector])
+    }
+
+    for (var selector in Declaration) {
+        forEachSelector(Declaration[selector], selector)
+    }
+
+    if (generatedDeclSelectors.length !== 0) {
+        for (var i = 0, ii = generatedDeclSelectors.length; i < ii; i++) {
+            forEachSelector(
+                Declaration[generatedDeclSelectors[i]],
+                generatedDeclSelectors[i]
+            )
+        }
+    }
 }
 
 /**
