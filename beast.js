@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.25.0
+ * @version 0.25.1
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -577,8 +577,11 @@ function CompileDeclarations () {
                 for (var j = 0, jj = inheritedElems.length, aSelector, bSelector; j < jj; j++) {
                     aSelector = declSelector + '__' + inheritedElems[j]
                     bSelector = blockName + '__' + inheritedElems[j]
-                    Beast.decl(aSelector, {inherits: bSelector})
-                    generatedDeclSelectors.push(aSelector)
+
+                    if (Declaration[aSelector] === undefined) {
+                        Beast.decl(aSelector, {inherits: bSelector})
+                        generatedDeclSelectors.push(aSelector)
+                    }
                 }
             }
         }
