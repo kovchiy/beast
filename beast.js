@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.25.1
+ * @version 0.28.0
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -40,7 +40,7 @@ var HttpRequestQueue = []            // Queue of required bml-files with link ta
 var CssLinksToLoad = 0               // Num of <link rel="stylesheet"> in the <head>
 var BeastIsReady = false             // If all styles and scripts are loaded
 var OnBeastReadyCallbacks = []       // Functions to call when sources are ready
-var ReStartBML = /<[a-z][^>]+\/?>/i  // matches start of BML substring
+var ReStartBML = /<[a-z][^>]*\/?>/i  // matches start of BML substring
 var ReDoubleQuote = /"/g             // matches "-symbols
 var ReBackslash = /\\/g              // matches \-symbols
 var ReLessThen = /</g                // matches <-symbols
@@ -51,6 +51,7 @@ var ReStylePairSplit = /:\s?/        // matches :-separation in style DOM-attrib
 // Declaration properties that can't belong to user
 var ReservedDeclarationProperies = {
     inherits:1,
+    implementWith:1,
     expand:1,
     mod:1,
     mix:1,
@@ -130,7 +131,9 @@ function stringifyObject (ctx) {
                 string += '"' + key + '":' + stringifyObject(ctx[key]) + ','
             }
         }
-        string = string.slice(0,-1)
+        if (string.length !== 1) {
+            string = string.slice(0, -1)
+        }
         string += '}'
         return string
     }
@@ -262,6 +265,11 @@ function ProcessBmlScripts () {
 
     for (var i = 0, ii = scripts.length; i < ii; i++) {
         var script = scripts[i]
+
+        if (script === undefined) {
+            continue
+        }
+
         var text = script.text
 
         if (script.type === 'bml' && text !== '') {
@@ -293,30 +301,25 @@ function EvalBml (text) {
  * Initialize DOM: assign DOM-nodes to BemNodes
  * @domNode DOMElement Node to start with
  */
-Beast.domInit = function (domNode, isInnerCall) {
+Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
+    // No more Beast.decl() after the first Beast.domInit() call
+    if (!DeclarationFinished) {
+        DeclarationFinished = true
+        CompileDeclarations()
+    }
 
     if (domNode === undefined) {
         return false
     }
-
     // ELEMENT_NODE
     else if (domNode.nodeType === 1) {
-        var className = domNode.className
+        var nodeName = domNode.getAttribute('data-node-name')
+        if (nodeName !== null) {
 
-        if (className) {
-
-            // Assign name
-            var selector = className.split(' ')[0]
-            var indexOf__ = selector.indexOf('__')
-            var name
-
-            if (indexOf__ === -1) {
-                name = selector[0].toUpperCase() + selector.substr(1)
-            } else {
-                name = selector.substr(indexOf__ + 2)
-            }
-
-            var bemNode = Beast.node(name)
+            // BemNode
+            var bemNode = isInnerCall ? Beast.node(nodeName, {__context: parentBemNode}) : Beast.node(nodeName)
+            var stringToEval = ''
+            var implementedNodeName = ''
 
             // Assign attributes
             for (var i = 0, ii = domNode.attributes.length, name, value; i < ii; i++) {
@@ -333,25 +336,28 @@ Beast.domInit = function (domNode, isInnerCall) {
                 }
                 // Restore encoded objects
                 else if (name === 'data-event-handlers') {
-                    eval('bemNode._domNodeEventHandlers = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._domNodeEventHandlers = ' + decodeURIComponent(value)
+                }
+                else if (name === 'data-window-event-handlers') {
+                    stringToEval += ';bemNode._windowEventHandlers = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-mod-handlers') {
-                    eval('bemNode._modHandlers = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._modHandlers = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-mod') {
-                    eval('bemNode._mod = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._mod = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-param') {
-                    eval('bemNode._param = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._param = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-mix') {
-                    eval('bemNode._mix = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._mix = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-after-dom-init-handlers') {
-                    eval('bemNode._afterDomInitHandlers = ' + decodeURIComponent(value))
+                    stringToEval += ';bemNode._afterDomInitHandlers = ' + decodeURIComponent(value)
                 }
                 else if (name === 'data-implemented-node-name') {
-                    bemNode._implementedNode = Beast.node(value)
+                    implementedNodeName = value
                 }
                 // Else _domAttr
                 else if (name !== 'class') {
@@ -359,17 +365,27 @@ Beast.domInit = function (domNode, isInnerCall) {
                 }
             }
 
+            if (stringToEval !== '') {
+                eval(stringToEval)
+            }
+
+            if (implementedNodeName !== '') {
+                bemNode._implementedNode = Beast.node(implementedNodeName)
+            }
+
             domNode.removeAttribute('data-event-handlers')
+            domNode.removeAttribute('data-window-event-handlers')
             domNode.removeAttribute('data-mod-handlers')
             domNode.removeAttribute('data-mod')
             domNode.removeAttribute('data-param')
             domNode.removeAttribute('data-mix')
             domNode.removeAttribute('data-after-dom-init-handlers')
+            domNode.removeAttribute('data-node-name')
             domNode.removeAttribute('data-implemented-node-name')
 
             // Assign children
             for (var i = 0, ii = domNode.childNodes.length, childNode; i < ii; i++) {
-                childNode = Beast.domInit(domNode.childNodes[i], true)
+                childNode = Beast.domInit(domNode.childNodes[i], true, bemNode)
 
                 if (childNode instanceof BemNode) {
                     if (childNode._implementedNode) {
@@ -389,7 +405,7 @@ Beast.domInit = function (domNode, isInnerCall) {
             }
 
             // Assign flags
-            if (!isInnerCall) {
+            if (isInnerCall === undefined) {
                 bemNode._renderedOnce = true
             }
             bemNode._isExpanded = true
@@ -419,12 +435,12 @@ Beast.domInit = function (domNode, isInnerCall) {
                 bemNode._callModHandlers(name, bemNode._mod[name])
             }
 
+            // domInit
             bemNode._domInit()
 
             return bemNode
         }
     }
-
     // TEXT_NODE
     else if (domNode.nodeType === 3) {
         return domNode.nodeValue
@@ -481,16 +497,30 @@ Beast.decl = function (selector, decl) {
     }
 
     if (Declaration[selector] !== undefined) {
-        var oldDecl = Declaration[selector]
-        for (var item in oldDecl) {
-            if (decl[item] === undefined) {
-                decl[item] = oldDecl[item]
-            }
-        }
+        extendDecl(decl, Declaration[selector])
     }
+
     Declaration[selector] = decl
 
     return this
+}
+
+/**
+ * Extends declaration with another
+ * @decl    object extending decl
+ * @extDecl object decl to extend with
+ */
+function extendDecl (decl, extDecl) {
+    for (var key in extDecl) {
+        if (decl[key] === undefined) {
+            decl[key] = extDecl[key]
+        }
+        else if (
+            typeof extDecl[key] === 'object' && !Array.isArray(extDecl[key])
+        ) {
+            extendDecl(decl[key], extDecl[key])
+        }
+    }
 }
 
 /**
@@ -509,9 +539,7 @@ Beast.node = function (name, attr) {
     }
 
     return new BemNode(
-        name,
-        attr,
-        Array.prototype.splice.call(arguments, 2)
+        name, attr, Array.prototype.splice.call(arguments, 2)
     )
 }
 
@@ -521,12 +549,16 @@ Beast.node = function (name, attr) {
 function CompileDeclarations () {
     function extend (obj, extObj) {
         for (var key in extObj) {
-            if (ReservedDeclarationProperies[key] === 2) continue
+            if (ReservedDeclarationProperies[key] === 2) {
+                continue
+            }
 
             if (obj[key] === undefined) {
                 obj[key] = extObj[key]
             }
-            else if (typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction) {
+            else if (
+                typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction
+            ) {
                 (function (fn, inheritedFn, inheritedDecl) {
                     fn._inheritedDeclFunction = function () {
                         // Imitate inherited decl context for inner inherited() calls
@@ -537,7 +569,9 @@ function CompileDeclarations () {
                     }
                 })(obj[key], extObj[key], extObj)
             }
-            else if (typeof extObj[key] === 'object' && !Array.isArray(extObj[key])) {
+            else if (
+                typeof extObj[key] === 'object' && !Array.isArray(extObj[key])
+            ) {
                 extend(obj[key], extObj[key])
             }
         }
@@ -600,20 +634,22 @@ function CompileDeclarations () {
 
         // Compile expand rules to methods array
         var expandHandlers = []
+        if (decl.implementWith !== undefined) {
+            expandHandlers.unshift(function () {
+                this.implementWith(
+                    Beast.node(decl.implementWith, undefined, this.get())
+                )
+            })
+        }
         if (decl.expand !== undefined) {
             expandHandlers.unshift(decl.expand)
-        }
-        if (decl.mix !== undefined) {
-            expandHandlers.unshift(function () {
-                this.mix.apply(this, decl.mix)
-            })
         }
         if (decl.tag !== undefined) {
             expandHandlers.unshift(function () {
                 this.tag(decl.tag)
             })
         }
-        if (decl.noElems !== undefined) {
+        if (decl.noElems === true) {
             expandHandlers.unshift(function () {
                 this.noElems()
             })
@@ -635,14 +671,14 @@ function CompileDeclarations () {
         if (decl.on !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.on) {
-                    this.on(events, decl.on[events], false, true)
+                    this.on(events, decl.on[events], false, decl)
                 }
             })
         }
         if (decl.onWin !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.onWin) {
-                    this.onWin(events, decl.onWin[events], false, true)
+                    this.onWin(events, decl.onWin[events], false, decl)
                 }
             })
         }
@@ -694,316 +730,499 @@ Beast.onReady = function (callback) {
     }
 }
 
-/**
- * Looks for '<foo><bar>...</bar></foo>'-substrings and replaces with js-equiualents.
- * Algorythm:
- * - Find XML-node in text
- * - First node in siquence is root
- * - If root is sinle then ParseBMLNode(root) and finish
- * - Else look for root is closing and there's no opening node
- *   with the same name behind the root
- * - When find whole XML-substring, split it by '<' and parse by element
- *
- * @text   string Text to parse
- * @return string Parsed text
- */
-Beast.parseBML = function (text) {
+;(function () {
 
-    // Remove XML-comments
-    var startCommentIndex
-    var endCommentIndex
-    do {
-        startCommentIndex = text.indexOf('<!--')
-        if (startCommentIndex === -1) break
+Beast.parseBML = function (string) {
+    js = ''
+    buffer = ''
+    char = ''
+    prevChar = ''
+    nextChar = ''
+    lastPush = ''
+    nodeAttrValueQuote = ''
 
-        endCommentIndex = text.indexOf('-->')
-        if (endCommentIndex === -1) break
+    openNodesNum = 0
+    openBracesNum = 0
 
-        if (startCommentIndex < endCommentIndex) {
-            text = text.substr(0,startCommentIndex) + text.substr(endCommentIndex + 3)
+    embedStack = []
+
+    inBml = false
+    inBmlComment = false
+    inNode = false
+    inClosingNode = false
+    inNodeName = false
+    inNodeAttrName = false
+    inNodeAttrValue = false
+    inNodeTextContent = false
+    inSingleQuoteString = false
+    inDoubleQuoteString = false
+    inSingleLineComment = false
+    inMultiLineComment = false
+    inEmbed = false
+
+    for (var i = 0, ii = string.length; i < ii; i++) {
+        prevChar = i > 0 ? string[i - 1] : ''
+        nextChar = i < ii - 1 ? string[i + 1] : ''
+        char = string[i]
+
+        // Reset escape char
+        if (prevChar === '\\' && char === '\\') {
+            prevChar = ''
+        }
+
+        /*
+         * BML context
+         */
+        if (inBml) {
+            // Node attr value
+            if (inNodeAttrValue) {
+                if (char === nodeAttrValueQuote && prevChar !== '\\') {
+                    pushNodeAttrValue()
+                }
+                else if (char === '{' && prevChar !== '\\') {
+                    pushNodeAttrValue(true)
+                    pushEmbed()
+                }
+                else {
+                    if ((char === '"' || char === "'") && prevChar !== '\\') {
+                        buffer += '\\'
+                    }
+                    buffer += char
+                }
+            }
+            // Comment
+            else if (inBmlComment) {
+                if (prevChar === '-' && char === '>') {
+                    inBmlComment = false
+                }
+            }
+            // Comment start
+            else if (char === '<' && nextChar === '!') {
+                inBmlComment = true
+            }
+            // Node text content
+            else if (inNodeTextContent) {
+                if (char === '<' && (nextChar === '/' || isLetter(nextChar))) {
+                    pushNodeTextContent()
+                }
+                else if (char === '{' && prevChar !== '\\') {
+                    pushNodeTextContent(true)
+                    pushEmbed()
+                }
+                else {
+                    if (char === '"') {
+                        buffer += '\\' + char
+                    }
+                    else if (char === '\n') {
+                        buffer += '\\n'
+                    }
+                    else {
+                        buffer += char
+                    }
+                }
+            }
+            // Break char: space, new line or tab
+            else if (isBreak(char)) {
+                if (inNodeName) {
+                    pushNodeName()
+                    inNodeAttrName = true
+                }
+                else if (inNodeAttrName) {
+                    pushNodeAttrName()
+                }
+
+                if (inNode && !inNodeName && isLetter(nextChar)) {
+                    inNodeAttrName = true
+                }
+            }
+            else if ((inNodeName || inNodeAttrName) && isLetterOrDigitOrDash(char)) {
+                buffer += char
+
+                // Node attr name start
+                if (!inNodeName && !inNodeAttrName) {
+                    inNodeAttrName = true
+                }
+            }
+            // Node attr name end
+            else if (inNodeAttrName && prevChar === '=' && (char === '"' || char === "'")) {
+                pushNodeAttrName()
+                inNodeAttrValue = true
+                nodeAttrValueQuote = char
+            }
+            // Node opening start
+            else if (!inNode && prevChar === '<' && isLetter(char)) {
+                buffer += char
+                inNode = true
+                inNodeName = true
+                pushNodeOpen()
+            }
+            // Node closing start
+            else if (!inClosingNode && prevChar === '<' && char === '/' && isLetter(nextChar)) {
+                inClosingNode = true
+                inNodeName = true
+            }
+            // Single node closed
+            else if (inNode && prevChar === '/' && char === '>') {
+                if (inNodeName) {
+                    pushNodeName()
+                }
+                if (inNodeAttrName) {
+                    pushNodeAttrName()
+                }
+
+                pushClosingNode()
+            }
+            // Node opening end
+            else if (inNode && char === '>') {
+                if (inNodeName) {
+                    pushNodeName()
+                }
+                if (inNodeAttrName) {
+                    pushNodeAttrName()
+                }
+
+                pushOpeningNodeClose()
+                inNodeTextContent = true
+            }
+            // Node closing end
+            else if (char === '>' && inClosingNode) {
+                pushClosingNode()
+            }
+            // Skip char for future
+            else if (
+                !(inNode && !inNodeAttrValue && char === '/' && nextChar === '>') &&
+                !(inNodeAttrName && char === '=' && nextChar !== '=')
+            ) {
+                // Unexpected char
+                throw (
+                    'BML syntax error: Unexpected token "' + char + '": \n' +
+                    string.substring(0, i+1).split('\n').slice(-5).join('\n') + '\n' +
+                    js.slice(-100)
+                )
+            }
+        }
+
+        /*
+         * JS context
+         */
+        else {
+            // New line
+            if (char === '\n') {
+                if (inSingleLineComment) {
+                    inSingleLineComment = false
+                }
+            }
+            // Single line comment
+            else if (prevChar === '/' && char === '/') {
+                if (!inSingleLineComment) {
+                    inSingleLineComment = true
+                }
+            }
+            // Multi line comment
+            else if (prevChar === '/' && char === '*') {
+                if (!inMultiLineComment) {
+                    inMultiLineComment = true
+                }
+            }
+            else if (prevChar === '*' && char === '/') {
+                if (inMultiLineComment) {
+                    inMultiLineComment = false
+                }
+            }
+            // If not inside comment
+            else if (!inSingleLineComment && !inMultiLineComment) {
+                // Single quote string
+                if (!inDoubleQuoteString && char === "'" && prevChar !== '\\') {
+                    inSingleQuoteString = !inSingleQuoteString
+                }
+                // Double quote string
+                else if (!inSingleQuoteString && char === '"' && prevChar !== '\\') {
+                    inDoubleQuoteString = !inDoubleQuoteString
+                }
+
+                // If not inside string
+                if (!inSingleQuoteString && !inDoubleQuoteString) {
+                    // Embedded JS
+                    if (inEmbed) {
+                        if (char === '{') {
+                            openBracesNum++
+                        }
+                        else if (char === '}') {
+                            openBracesNum--
+                        }
+
+                        if (openBracesNum === 0) {
+                            popEmbed()
+                        }
+                    }
+
+                    // BML
+                    if (!inBml && char === '<' && isLetter(nextChar)) {
+                        inBml = true
+
+                        if (inEmbed) {
+                            embedStack.push([openNodesNum, openBracesNum, inNode, inNodeTextContent, inNodeAttrValue, nodeAttrValueQuote])
+                            openNodesNum = 0
+                            openBracesNum = 0
+                            inNode = false
+                            inNodeTextContent = false
+                            inNodeAttrValue = false
+                            nodeAttrValueQuote = ''
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!inBml && char !== '') {
+            js += char
+        }
+    }
+
+    return js
+}
+
+var js = ''
+var buffer = ''
+var char = ''
+var prevChar = ''
+var nextChar = ''
+var lastPush = ''
+var nodeAttrValueQuote = ''
+
+var openNodesNum = 0
+var openBracesNum = 0
+
+var embedStack = []
+
+var inBml = false
+var inBmlComment = false
+var inNode = false
+var inClosingNode = false
+var inNodeName = false
+var inNodeAttrName = false
+var inNodeAttrValue = false
+var inNodeTextContent = false
+var inSingleQuoteString = false
+var inDoubleQuoteString = false
+var inSingleLineComment = false
+var inMultiLineComment = false
+var inEmbed = false
+
+function pushNodeOpen () {
+    if (!inEmbed) {
+        if (lastPush === 'closingNode') {
+            js += ','
+        }
+        else if (lastPush === 'nodeTextContent') {
+            js += ','
+        }
+        else if (lastPush === 'embed') {
+            js += ','
+        }
+        else if (lastPush === 'openingNodeClose') {
+            js += ','
+        }
+        else if (lastPush === 'nodeName') {
+            js += ',undefined,'
+        }
+        else if (lastPush === 'nodeAttrName') {
+            js += 'true},'
+        }
+        else if (lastPush === 'nodeAttrValue') {
+            js += '},'
+        }
+    }
+
+    openNodesNum++
+    js += 'Beast.node('
+    lastPush = 'nodeOpen'
+}
+
+function pushClosingNode () {
+    if (lastPush === 'nodeAttrName') {
+        js += 'true}'
+    }
+    else if (lastPush === 'nodeAttrValue') {
+        js += '}'
+    }
+
+    openNodesNum--
+    js += ')'
+    buffer = ''
+    inNode = false
+    inClosingNode = false
+    inNodeTextContent = true
+    inNodeName = false
+    lastPush = 'closingNode'
+
+    if (openNodesNum === 0) {
+        if (inEmbed) {
+            var parserState = embedStack.pop()
+            openNodesNum = parserState[0]
+            openBracesNum = parserState[1]
+            inNode = parserState[2]
+            inNodeTextContent = parserState[3]
+            inNodeAttrValue = parserState[4]
+            nodeAttrValueQuote = parserState[5]
         } else {
-            break
-        }
-    } while (true)
-
-    // Replace XML-tags with JS-functions
-    var startParams
-    do {
-        startParams = ReStartBML.exec(text)
-
-        if (startParams === null) {
-            return text
+            inNodeTextContent = false
         }
 
-        var matched = startParams[0]
-        var bmlStartsAt = startParams.index
-        var bmlEndsAt
+        inBml = false
+        char = ''
+        prevChar = ''
+        nextChar = ''
+        lastPush = ''
+    }
+}
 
-        if (matched[matched.length-2] === '/') {
-            bmlEndsAt = matched.length
-        } else {
-            var nameEndsAt = matched.indexOf('\n')
-            if (nameEndsAt < 0) nameEndsAt = matched.indexOf(' ')
-            if (nameEndsAt < 0) nameEndsAt = matched.length-1
+function pushNodeName () {
+    js += '"' + buffer + '"'
+    buffer = ''
+    inNodeName = false
+    lastPush = 'nodeName'
 
-            var name = matched.substr(1, nameEndsAt-1)
-            var reOpenedNodesWithSameName = new RegExp('<'+ name +'(?:|[ \n][^>]*)>', 'g')
-            var closedNode = '</'+ name +'>'
-            var textPortion = text.substr(bmlStartsAt+1)
-            var closedNodes = -1
-            var openedNodes = 0
-            var textBeforeClosedNode
-            var textAfterClosedNode
-            var indexOffset = 0
+    if (openNodesNum === 1 && !inEmbed) {
+        js += ',{__context:this'
+        lastPush = 'nodeAttrValue'
+    }
+}
 
-            do {
-                bmlEndsAt = indexOffset === 0
-                    ? textPortion.search(closedNode)
-                    : textAfterClosedNode.search(closedNode) + indexOffset
+function pushNodeAttrName () {
+    if (lastPush === 'nodeName') {
+        js += ',{'
+    }
+    else if (lastPush === 'nodeAttrName') {
+        js += 'true,'
+    }
+    else if (lastPush === 'nodeAttrValue') {
+        js += ','
+    }
 
-                textBeforeClosedNode = textPortion.substr(0, bmlEndsAt)
-                textAfterClosedNode = textPortion.substr(bmlEndsAt + 1)
+    js += '"' + buffer + '":'
+    buffer = ''
+    inNodeAttrName = false
+    lastPush = 'nodeAttrName'
+}
 
-                openedNodes = textBeforeClosedNode.match(reOpenedNodesWithSameName)
-                openedNodes = openedNodes !== null ? openedNodes.length : 0
-
-                closedNodes++
-                indexOffset = bmlEndsAt + 1
-            } while (
-                openedNodes > closedNodes
-            )
-
-            bmlEndsAt += 1 + closedNode.length
-        }
-
-        var textPortion = text.substr(bmlStartsAt, bmlEndsAt)
-        var textPortionReplace = ''
-        var buffer = ''
-        var splitBML = []
-        var current
-        var prev = ''
-        var openBraceNum = 0
-
-        for (var i = 0, ii = textPortion.length; i < ii; i++) {
-            current = textPortion[i]
-
-            if (current === '\n') {
-                continue
-            }
-
-            if (current === '{' && prev !== '\\') {
-                openBraceNum++
-            }
-
-            if (current === '}' && prev !== '\\') {
-                openBraceNum--
-            }
-
-            if (current === '<' && openBraceNum === 0) {
-                splitBML.push(buffer)
-                buffer = ''
-            }
-
-            buffer += current
-
-            if (current === '>' && openBraceNum === 0) {
-                splitBML.push(buffer)
-                buffer = ''
-            }
-
-            prev = current
-        }
-
+function pushNodeAttrValue (beforePushEmbed) {
+    if (lastPush === 'embed') {
         if (buffer !== '') {
-            splitBML.push(textPortion)
+            js += '+'
         }
+    }
+    else if (lastPush === 'nodeAttrName' && buffer === '' && beforePushEmbed === undefined) {
+        js += 'false'
+    }
 
-        var first = true
-        var inParentContext
-
-        for (var i = 0, ii = splitBML.length; i < ii; i++) {
-            var current = splitBML[i]
-
-            if (current === '') continue
-
-            var firstChar = current.substr(0,1)
-            var firstTwoChars = current.substr(0,2)
-            var lastChar = current.substr(current.length-1)
-            var lastTwoChars = current.substr(current.length-2)
-
-            if (firstTwoChars === '</' && lastChar === '>') {
-                textPortionReplace += ')'
-                continue
-            }
-
-            if (first) {
-                first = false
-                inParentContext = true
-            } else {
-                textPortionReplace += ', '
-                inParentContext = false
-            }
-
-            if (firstChar === '<' && lastTwoChars === '/>') {
-                textPortionReplace += ParseBMLNode(current, true, inParentContext)
-                continue
-            }
-
-            if (firstChar === '<' && lastChar === '>') {
-                textPortionReplace += ParseBMLNode(current, false, inParentContext)
-                continue
-            }
-
-            if (firstChar === '<') {
-                return console.error('Unclosed node:', current)
-            }
-
-            textPortionReplace += ParseTextInsideBML(current)
-        }
-
-        text = text.substr(0, bmlStartsAt) + textPortionReplace + text.substr(bmlStartsAt + bmlEndsAt)
-    } while (true)
-}
-
-/**
- * Looks for '{...}'-substrings and replaces with js-concatinations.
- *
- * @text string Text to parse
- */
-function ParseTextInsideBML (text) {
-    var result = ''
-    var openBraceNum = 0
-    var prevSymbol = ''
-    var symbol
-
-    for (var i = 0, ii = text.length; i < ii; i++) {
-        symbol = text[i]
-
-        if (symbol === '{' && prevSymbol !== '\\') {
-            openBraceNum++
-            if (openBraceNum === 1) {
-                if (result !== '') {
-                    result += "',"
-                }
-            } else {
-                result += symbol
-            }
-        } else if (openBraceNum > 0 && symbol === '}') {
-            openBraceNum--
-            if (openBraceNum === 0) {
-                if (i < ii-1 && text[i+1] !== '{') {
-                    result += ",'"
-                }
-            } else {
-                result += symbol
-            }
-        } else if (openBraceNum === 0) {
-            if (i === 0) result += "'"
-            if (symbol === "'") result += '\\'
-            result += symbol
-            if (i === ii-1) result += "'"
+    if (buffer !== '') {
+        if (beforePushEmbed === undefined) {
+            js += isNaN(buffer) || lastPush === 'embed' ? '"' + buffer + '"' : buffer
+            buffer = ''
         } else {
-            result += symbol
+            js += '"' + buffer + '"'
         }
-
-        prevSymbol = symbol
     }
 
-    return result
+    if (beforePushEmbed === undefined) {
+        nodeAttrValueQuote = ''
+        inNodeAttrValue = false
+    }
+
+    lastPush = 'nodeAttrValue'
 }
 
-/**
- * Converts '<foo>...</foo>' to 'Beast.node('foo', ...)'
- *
- * @text   string  Text to parse
- * @single boolean If node is sinle (<node/>)
- * @isRoot boolean If node is root of bml tree, it gets call-context of parent block
- * @return string  Javascript code
- */
-function ParseBMLNode (text, single, isRoot) {
-    text = text.substr(1)
-    text = text.substr(
-        0, text.length - (single ? 2 : 1)
-    )
-
-    var parsed = ParseNameAndAttrOfBMLNode(text)
-
-    if (isRoot) {
-        parsed.attr += (parsed.attr === '' ? '' : ',') + "'__context':this"
+function pushOpeningNodeClose () {
+    if (lastPush === 'nodeName') {
+        if (nextChar !== '<') {
+            js += ',undefined'
+        }
+    }
+    else if (lastPush === 'nodeAttrName') {
+        js += 'true}'
+    }
+    else if (lastPush === 'nodeAttrValue') {
+        js += '}'
     }
 
-    if (parsed.attr === '') {
-        parsed.attr === 'undefined'
-    }
-
-    return "Beast.node('" + parsed.name + "',{" + parsed.attr + "}" + (single ? ')' : '')
+    inNode = false
+    lastPush = 'openingNodeClose'
 }
 
-/**
- * Parses XML-substring with node name and attributes to json string
- */
-function ParseNameAndAttrOfBMLNode (text) {
-    var nodeName
-    var attr = ''
-    var buffer = ''
-    var openQuote = ''
-    var attrName
-    var escape = false
-
-    for (var i = 0, ii = text.length-1; i <= ii; i++) {
-        var s = text[i]
-
-        // last symbol always metters
-        if (i === ii && s !== ' ' && s !== '\n' && s !== "'" && s !== '"' && s !== '=') {
-            buffer += s
+function pushNodeTextContent (beforePushEmbed) {
+    if (buffer !== '') {
+        if (lastPush === 'closingNode') {
+            js += ','
+        }
+        else if (lastPush === 'embed') {
+            js += ','
+        }
+        else if (lastPush === 'openingNodeClose') {
+            js += ','
         }
 
-        // node name
-        if ((s === ' ' || s === '\n' || i === ii) && nodeName === undefined) {
-            nodeName = buffer
-            buffer = ''
-        }
-        // boolean attr
-        else if ((s === ' ' || s === '\n' || i === ii) && buffer !== '' && openQuote === '') {
-            attr += "'"+ buffer +"':true,"
-            buffer = ''
-        }
-        // attr name
-        else if (s === '=' && openQuote === '') {
-            attrName = buffer
-            buffer = ''
-        }
-        // attr value start
-        else if ((s === '"' || s === "'") && openQuote === '') {
-            openQuote = s
-        }
-        // attr value finish
-        else if (s === openQuote && !escape) {
-            attr += "'"+ attrName +"':"+ (buffer === '' ? 'false' : ParseTextInsideBML(buffer)) + ","
-            openQuote = ''
-            buffer = ''
-        }
-        // when spaces metter
-        else if ((s === ' ' || s === '\n') && openQuote !== '') {
-            buffer += s
-        }
-        // read symbol
-        else if (s !== ' ' && s !== '\n') {
-            buffer += s
-        }
-
-        escape = s === '\\'
+        js += '"' + buffer + '"'
+        buffer = ''
+        lastPush = 'nodeTextContent'
     }
 
-    if (attr !== '') {
-        attr = attr.substring(0, attr.length-1)
-    }
-
-    return {
-        name: nodeName,
-        attr: attr
+    if (beforePushEmbed === undefined) {
+        inNodeTextContent = false
     }
 }
+
+function pushEmbed () {
+    if (inNodeTextContent) {
+        if (lastPush === 'closingNode') {
+            js += ','
+        }
+        else if (lastPush === 'nodeTextContent') {
+            js += ','
+        }
+    }
+    else if (inNodeAttrValue) {
+        if (buffer !== '') {
+            js += '+'
+            buffer = ''
+        }
+    }
+
+    openBracesNum++
+    inBml = false
+    inEmbed = true
+    char = ''
+    lastPush = 'embed'
+}
+
+function popEmbed () {
+    if (inNodeAttrValue) {
+        if (buffer !== '') {
+            js += buffer
+            buffer = ''
+        }
+    }
+
+    inBml = true
+
+    if (embedStack.length === 0) {
+        inEmbed = false
+    }
+}
+
+function isLetter (char) {
+    return char >= 'A' && char <= 'z'
+}
+
+function isLetterOrDigitOrDash (char) {
+    return char >= 'A' && char <= 'z' || char >= '0' && char <= '9' || char === '-'
+}
+
+function isBreak (char) {
+    return char === ' ' || char === '\n' || char === '\t'
+}
+
+})();
 
 /**
  * Finds difference between @newNode and @oldNode and patches the DOM
@@ -1366,6 +1585,7 @@ var BemNode = function (nodeName, attr, children) {
     // Define mods, params and special params
     for (var key in this._attr) {
         var firstLetter = key.substr(0,1)
+
         if (key === '__context') {
             if (this._parentBlock === undefined) {
                 this.parentBlock(this._attr.__context)
@@ -1904,17 +2124,22 @@ BemNode.prototype = {
             handler.unbindedHandler = handlerWrap
         }
 
+        // Used in toHtml() method to restore function links
+        if (fromDecl && handler.beastDeclPath === undefined) {
+            handler.beastDeclPath = 'Beast.declaration["' + this._selector + '"].on["' + event + '"]'
+        }
+
         if (!isSingleEvent && event.indexOf(' ') > -1) {
             var events = event.split(' ')
             for (var i = 0, ii = events.length; i < ii; i++) {
-                this.on(events[i], handler, true)
+                this.on(events[i], handler, true, fromDecl)
             }
         } else {
             if (this._domNode !== undefined) {
-                this._domNode.addEventListener(event, handler)
+                this._domNode.addEventListener(event, handler, {passive: true})
             }
 
-            if (!dontCache) {
+            if (dontCache === undefined) {
                 if (this._domNodeEventHandlers === undefined) {
                     this._domNodeEventHandlers = {}
                 }
@@ -1924,10 +2149,11 @@ BemNode.prototype = {
                 this._domNodeEventHandlers[event].push(handler)
             }
 
-            if (this._isExpandContext && !fromDecl) {
+            if (this._isExpandContext && fromDecl === undefined) {
                 handler.isExpandContext = true
                 this._hasExpandContextEventHandlers = true
             }
+
             if (this._isDomInitContext) {
                 handler.isDomInitContext = true
                 this._hasDomInitContextEventHandlers = true
@@ -1957,14 +2183,19 @@ BemNode.prototype = {
             handler.isBoundToNode = true
         }
 
+        // Used in toHtml() method to restore function links
+        if (fromDecl && handler.beastDeclPath === undefined) {
+            handler.beastDeclPath = 'Beast.declaration["' + this._selector + '"].onWin["' + event + '"]'
+        }
+
         if (!isSingleEvent && event.indexOf(' ') > -1) {
             var events = event.split(' ')
             for (var i = 0, ii = events.length; i < ii; i++) {
-                this.onWin(events[i], handler, true)
+                this.onWin(events[i], handler, true, fromDecl)
             }
         } else {
             if (this._domNode !== undefined) {
-                window.addEventListener(event, handler)
+                window.addEventListener(event, handler, {passive: true})
             }
 
             if (!dontCache) {
@@ -2033,7 +2264,7 @@ BemNode.prototype = {
      * @data      anything Additional data
      */
     trigger: function (eventName, data) {
-        if (this._domNode) {
+        if (this._domNode !== undefined) {
             this._domNode.dispatchEvent(
                 data !== undefined
                     ? new CustomEvent(eventName, {detail:data})
@@ -2051,10 +2282,10 @@ BemNode.prototype = {
      * @data      anything Additional data
      */
     triggerWin: function (eventName, data) {
-        if (this._domNode) {
+        if (this._domNode !== undefined) {
             eventName = this.parentBlock()._nodeName + ':' + eventName
             window.dispatchEvent(
-                data
+                data !== undefined
                     ? new CustomEvent(eventName, {detail:data})
                     : new Event(eventName)
             )
@@ -2332,6 +2563,7 @@ BemNode.prototype = {
             if (bemNode._isBlock) {
                 bemNode._resetParentBlockForChildren()
             }
+
             if (this._isRenderStateContext) {
                 bemNode._expandForRenderState(true)
             } else if (!ignoreDom) {
@@ -2367,8 +2599,10 @@ BemNode.prototype = {
                 : console.error('TODO: Extend handler objects')
 
             for (var key in bemNode._domNodeEventHandlers) {
-                for (var i = 0, ii = bemNode._domNodeEventHandlers[key].length; i < ii; i++) {
+                for (var i = 0, ii = bemNode._domNodeEventHandlers[key].length, beastDeclPath; i < ii; i++) {
+                    beastDeclPath = bemNode._domNodeEventHandlers[key][i].beastDeclPath
                     bemNode._domNodeEventHandlers[key][i] = bemNode._domNodeEventHandlers[key][i].unbindedHandler.bind(bemNode)
+                    bemNode._domNodeEventHandlers[key][i].beastDeclPath = beastDeclPath
                 }
             }
         }
@@ -2591,8 +2825,8 @@ BemNode.prototype = {
             this._isExpandContext = false
         }
 
-        // Continue only if parent node is defined
-        if (!parentDOMNode && !this._parentNode) {
+        // Continue only if parent node is defined and document is defiend too
+        if (parentDOMNode === undefined && this._parentNode === undefined || typeof document === 'undefined') {
             return this
         }
 
@@ -2730,7 +2964,8 @@ BemNode.prototype = {
         this._isDomInitContext = true
 
         var decl = this._decl
-        if (decl) {
+
+        if (decl !== undefined) {
             decl.__commonDomInit && decl.__commonDomInit.call(this)
         }
 
@@ -2904,29 +3139,35 @@ BemNode.prototype = {
      * @return string HTML
      */
     toHtml: function () {
+        var node = this
+
         // Call expand handler
-        if (!this._isExpanded && this._decl && this._decl.__commonExpand) {
-            this._isExpandContext = true
-            this._decl.__commonExpand.call(this)
-            this._completeExpand()
-            this._isExpandContext = false
+        if (!node._isExpanded && node._decl !== undefined && node._decl.__commonExpand !== undefined) {
+            node._isExpandContext = true
+            node._decl.__commonExpand.call(node)
+            node._completeExpand()
+            node._isExpandContext = false
+        }
+
+        if (node._implementedWith !== undefined) {
+            node = node._implementedWith
         }
 
         // HTML attrs
-        var attrs = ''
+        var attrs = ' data-node-name="' + node._nodeName + '"'
 
-        for (var key in this._domAttr)  {
-            attrs += ' ' + key + '="' + escapeDoubleQuotes(this._domAttr[key].toString()) + '"'
+        for (var key in node._domAttr)  {
+            attrs += ' ' + key + '="' + escapeDoubleQuotes(node._domAttr[key].toString()) + '"'
         }
 
         // Class attr
-        attrs += ' class="' + this._setDomNodeClasses(true) + '"'
+        attrs += ' class="' + node._setDomNodeClasses(true) + '"'
 
         // Style attr
         var style = ''
-        for (var key in this._css) {
-            if (this._css[key] || this._css[key] === 0) {
-                style += camelCaseToDash(key) + ':' + escapeDoubleQuotes(this._css[key]) + ';'
+        for (var key in node._css) {
+            if (node._css[key] || node._css[key] === 0) {
+                style += camelCaseToDash(key) + ':' + escapeDoubleQuotes(node._css[key]) + ';'
             }
         }
 
@@ -2935,45 +3176,50 @@ BemNode.prototype = {
         }
 
         // Stringify _domNodeEventHandlers
-        if (this._domNodeEventHandlers) {
-            attrs += ' data-event-handlers="' + encodeURIComponent(stringifyObject(this._domNodeEventHandlers)) + '"'
+        if (node._domNodeEventHandlers !== undefined) {
+            attrs += ' data-event-handlers="' + encodeURIComponent(stringifyObject(node._domNodeEventHandlers)) + '"'
+        }
+
+        // Stringify _windowEventHandlers
+        if (node._windowEventHandlers !== undefined) {
+            attrs += ' data-window-event-handlers="' + encodeURIComponent(stringifyObject(node._windowEventHandlers)) + '"'
         }
 
         // Stringify _modHandlers
-        if (this._modHandlers) {
-            attrs += ' data-mod-handlers="' + encodeURIComponent(stringifyObject(this._modHandlers)) + '"'
+        if (node._modHandlers !== undefined) {
+            attrs += ' data-mod-handlers="' + encodeURIComponent(stringifyObject(node._modHandlers)) + '"'
         }
 
         // Stringify properties
-        if (!objectIsEmpty(this._mod)) {
-            attrs += ' data-mod="' + encodeURIComponent(stringifyObject(this._mod)) + '"'
+        if (!objectIsEmpty(node._mod)) {
+            attrs += ' data-mod="' + encodeURIComponent(stringifyObject(node._mod)) + '"'
         }
-        if (!objectIsEmpty(this._param)) {
-            attrs += ' data-param="' + encodeURIComponent(stringifyObject(this._param)) + '"'
+        if (!objectIsEmpty(node._param)) {
+            attrs += ' data-param="' + encodeURIComponent(stringifyObject(node._param)) + '"'
         }
-        if (this._mix.length !== 0) {
-            attrs += ' data-mix="' + encodeURIComponent(stringifyObject(this._mix)) + '"'
+        if (node._mix.length !== 0) {
+            attrs += ' data-mix="' + encodeURIComponent(stringifyObject(node._mix)) + '"'
         }
-        if (this._afterDomInitHandlers.length !== 0) {
-            attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(this._afterDomInitHandlers)) + '"'
+        if (node._afterDomInitHandlers.length !== 0) {
+            attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(node._afterDomInitHandlers)) + '"'
         }
-        if (this._implementedNode !== undefined) {
-            attrs += ' data-implemented-node-name="' + this._implementedNode._nodeName + '"'
+        if (node._implementedNode !== undefined) {
+            attrs += ' data-implemented-node-name="' + node._implementedNode._nodeName + '"'
         }
 
         // HTML tag
-        if (SingleTag[this._tag] === 1) {
-            return '<' + this._tag + attrs + '/>'
+        if (SingleTag[node._tag] === 1) {
+            return '<' + node._tag + attrs + '/>'
         } else {
             var content = ''
-            for (var i = 0, ii = this._children.length; i < ii; i++) {
-                if (this._children[i] instanceof BemNode) {
-                    content += this._children[i].toHtml()
+            for (var i = 0, ii = node._children.length; i < ii; i++) {
+                if (node._children[i] instanceof BemNode) {
+                    content += node._children[i].toHtml()
                 } else {
-                    content += escapeHtmlTags(this._children[i].toString())
+                    content += escapeHtmlTags(node._children[i].toString())
                 }
             }
-            return '<' + this._tag + attrs + '>' + content + '</' + this._tag + '>'
+            return '<' + node._tag + attrs + '>' + content + '</' + node._tag + '>'
         }
     },
 
