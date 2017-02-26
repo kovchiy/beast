@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.28.0
+ * @version 0.29.0
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -67,10 +67,12 @@ var ReservedDeclarationProperies = {
 
     // 2 means not to inherit this field
     abstract:2,
+    privateMod:2,
     __userMethods:2,
     __commonExpand:2,
     __commonDomInit:2,
     __flattenInherits:2,
+    __privateMod:2,
 }
 
 // CSS-properties measured in px commonly
@@ -161,7 +163,7 @@ function cloneObject (ctx) {
         }
         return array
     }
-    else if (typeof ctx === 'object' && ctx) {
+    else if (typeof ctx === 'object' && ctx !== null) {
         var object = {}
         for (var key in ctx) {
             object[key] = cloneObject(ctx[key])
@@ -350,9 +352,6 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                 else if (name === 'data-param') {
                     stringToEval += ';bemNode._param = ' + decodeURIComponent(value)
                 }
-                else if (name === 'data-mix') {
-                    stringToEval += ';bemNode._mix = ' + decodeURIComponent(value)
-                }
                 else if (name === 'data-after-dom-init-handlers') {
                     stringToEval += ';bemNode._afterDomInitHandlers = ' + decodeURIComponent(value)
                 }
@@ -370,7 +369,7 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
             }
 
             if (implementedNodeName !== '') {
-                bemNode._implementedNode = Beast.node(implementedNodeName)
+                bemNode._implementedNode = Beast.node(implementedNodeName, {__context:parentBemNode})
             }
 
             domNode.removeAttribute('data-event-handlers')
@@ -378,7 +377,6 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
             domNode.removeAttribute('data-mod-handlers')
             domNode.removeAttribute('data-mod')
             domNode.removeAttribute('data-param')
-            domNode.removeAttribute('data-mix')
             domNode.removeAttribute('data-after-dom-init-handlers')
             domNode.removeAttribute('data-node-name')
             domNode.removeAttribute('data-implemented-node-name')
@@ -398,6 +396,7 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                         bemNode.append(childNode)
                     }
 
+                    childNode._domInit()
                     childNode._renderedOnce = true
                 } else {
                     bemNode.append(childNode)
@@ -436,7 +435,9 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
             }
 
             // domInit
-            bemNode._domInit()
+            if (parentBemNode === undefined) {
+                bemNode._domInit()
+            }
 
             return bemNode
         }
@@ -477,10 +478,6 @@ Beast.decl = function (selector, decl) {
 
     if (typeof decl.inherits === 'string') {
         decl.inherits = [decl.inherits]
-    }
-
-    if (typeof decl.mix === 'string') {
-        decl.mix = [decl.mix]
     }
 
     if (decl.inherits !== undefined) {
@@ -554,10 +551,12 @@ function CompileDeclarations () {
             }
 
             if (obj[key] === undefined) {
-                obj[key] = extObj[key]
+                obj[key] = typeof extObj[key] === 'object'
+                    ? cloneObject(extObj[key])
+                    : extObj[key]
             }
             else if (
-                typeof extObj[key] === 'function' && !obj[key]._inheritedDeclFunction
+                typeof extObj[key] === 'function' && obj[key]._inheritedDeclFunction === undefined
             ) {
                 (function (fn, inheritedFn, inheritedDecl) {
                     fn._inheritedDeclFunction = function () {
@@ -587,23 +586,35 @@ function CompileDeclarations () {
         }
     }
 
-    function inherit (declSelector, decl, inheritedDecls, flattenInherits) {
+    function inherit (declSelector, decl, inheritedDecls, privates) {
         for (var i = inheritedDecls.length-1; i >= 0; i--) {
             if (typeof inheritedDecls[i] === 'string') {
                 var selector = inheritedDecls[i]
                 var inheritedDecl = Declaration[selector]
 
-                if (flattenInherits === undefined) {
-                    flattenInherits = []
-                }
-                flattenInherits.push(selector)
+                decl.__flattenInherits.push(selector)
 
                 if (inheritedDecl !== undefined) {
                     extend(decl, inheritedDecl)
 
-                    if (inheritedDecl.inherits !== undefined) {
-                        inherit(declSelector, decl, inheritedDecl.inherits, flattenInherits)
+                    if (inheritedDecl.privateMod === true) {
+                        privates = {selector:{}, mod:{}}
                     }
+
+                    if (privates !== undefined) {
+                        privates.selector[selector] = true
+                        if (inheritedDecl.mod !== undefined) {
+                            for (var modName in inheritedDecl.mod) {
+                                privates.mod[modName.toLowerCase()] = true
+                            }
+                        }
+                    }
+
+                    if (inheritedDecl.inherits !== undefined) {
+                        inherit(declSelector, decl, inheritedDecl.inherits, privates)
+                    }
+
+                    setPrivates(decl, privates)
                 }
             } else {
                 var inheritedElems = inheritedDecls[i]
@@ -619,18 +630,49 @@ function CompileDeclarations () {
                 }
             }
         }
+    }
 
-        return flattenInherits
+    function setPrivates (decl, privates) {
+        if (privates !== undefined) {
+            if (decl.__privateMod === undefined) {
+                decl.__privateMod = {}
+            }
+            if (decl.__privateMod._selector === undefined) {
+                decl.__privateMod._selector = {}
+            }
+            for (var modName in privates.mod) {
+                if (decl.__privateMod[modName] === undefined) {
+                    decl.__privateMod[modName] = {}
+                    for (var selector in privates.selector) {
+                        decl.__privateMod[modName][selector] = true
+                        decl.__privateMod._selector[selector] = true
+                    }
+                }
+            }
+        }
     }
 
     var generatedDeclSelectors = []
     var forEachSelector = function (decl, selector) {
 
+        var privates
+        if (decl.privateMod === true) {
+            privates = {selector:{}, mod:{}}
+            privates.selector[selector] = true
+            if (decl.mod !== undefined) {
+                for (var modName in decl.mod) {
+                    privates.mod[modName.toLowerCase()] = true
+                }
+            }
+        }
+
         // Extend decl with inherited rules
         if (decl.inherits !== undefined) {
-            var flattenInherits = inherit(selector, decl, decl.inherits)
-            decl.__flattenInherits = flattenInherits
+            decl.__flattenInherits = []
+            inherit(selector, decl, decl.inherits, privates)
         }
+
+        setPrivates(decl, privates)
 
         // Compile expand rules to methods array
         var expandHandlers = []
@@ -913,18 +955,18 @@ Beast.parseBML = function (string) {
                 }
             }
             // Single line comment
-            else if (prevChar === '/' && char === '/') {
+            else if (prevChar === '/' && char === '/' && !inSingleQuoteString && !inDoubleQuoteString) {
                 if (!inSingleLineComment) {
                     inSingleLineComment = true
                 }
             }
             // Multi line comment
-            else if (prevChar === '/' && char === '*') {
+            else if (prevChar === '/' && char === '*' && !inSingleQuoteString && !inDoubleQuoteString) {
                 if (!inMultiLineComment) {
                     inMultiLineComment = true
                 }
             }
-            else if (prevChar === '*' && char === '/') {
+            else if (prevChar === '*' && char === '/' && !inSingleQuoteString && !inDoubleQuoteString) {
                 if (inMultiLineComment) {
                     inMultiLineComment = false
                 }
@@ -939,9 +981,8 @@ Beast.parseBML = function (string) {
                 else if (!inSingleQuoteString && char === '"' && prevChar !== '\\') {
                     inDoubleQuoteString = !inDoubleQuoteString
                 }
-
                 // If not inside string
-                if (!inSingleQuoteString && !inDoubleQuoteString) {
+                else if (!inSingleQuoteString && !inDoubleQuoteString) {
                     // Embedded JS
                     if (inEmbed) {
                         if (char === '{') {
@@ -1180,6 +1221,9 @@ function pushEmbed () {
         else if (lastPush === 'nodeTextContent') {
             js += ','
         }
+        else if (lastPush === 'openingNodeClose') {
+            js += ','
+        }
     }
     else if (inNodeAttrValue) {
         if (buffer !== '') {
@@ -1194,6 +1238,7 @@ function pushEmbed () {
     char = ''
     lastPush = 'embed'
 }
+
 
 function popEmbed () {
     if (inNodeAttrValue) {
@@ -1936,21 +1981,6 @@ BemNode.prototype = {
     },
 
     /**
-     * Set additional classes
-     */
-    mix: function () {
-        for (var i = 0, ii = arguments.length; i < ii; i++) {
-            this._mix.push(arguments[i])
-        }
-        if (this._domNode) {
-            this._setDomNodeClasses()
-        }
-
-        this._cssClasses = undefined
-        return this
-    },
-
-    /**
      * Define modifiers and its default values
      */
     defineMod: function (defaults) {
@@ -2619,7 +2649,6 @@ BemNode.prototype = {
                 : console.error('TODO: Extend handler objects')
         }
 
-        this._setDomNodeClasses()
         bemNode._implementedNode = this
         this._implementedWith = bemNode
         bemNode._extendProperty('_mod', this._mod, true)
@@ -3020,11 +3049,17 @@ BemNode.prototype = {
     /**
      * Sets DOM classes
      */
-    _setDomNodeClasses: function (returnClassNameOnly) {
+    _setDomNodeClasses: function (returnClassNameOnly, privateMod) {
+        // if (this._selector === 'productcard__purchase') this._cssClasses = undefined
+
         if (this._cssClasses === undefined) {
             var className = this._selector
             var value
             var tail
+
+            if (privateMod === undefined && this._decl !== undefined) {
+                privateMod = this._decl.__privateMod
+            }
 
             if (this._flattenInheritsForDom !== undefined) {
                 for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
@@ -3032,31 +3067,41 @@ BemNode.prototype = {
                 }
             }
 
-            if (this._mix.length !== 0) {
-                for (var i = 0, ii = this._mix.length; i < ii; i++) {
-                    className += ' ' + this._mix[i]
-                }
-            }
-
             for (var key in this._mod) {
                 value = this._mod[key]
-                if (value === '' || value === false || value === undefined) continue
+
+                if (value === '' || value === false || value === undefined) {
+                    continue
+                }
 
                 tail = value === true
                     ? '_' + key
                     : '_' + key + '_' + value
 
-                className += ' ' + this._selector + tail
+                if (
+                    privateMod === undefined ||
+                    privateMod[key] === undefined && privateMod._selector[this._selector] === undefined ||
+                    privateMod[key] !== undefined && privateMod[key][this._selector] === true
+                ) {
+                    className += ' ' + this._selector + tail
+                }
 
                 if (this._flattenInheritsForDom) {
-                    for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
-                        className += ' ' + this._flattenInheritsForDom[i] + tail
+                    for (var i = 0, ii = this._flattenInheritsForDom.length, selector; i < ii; i++) {
+                        selector = this._flattenInheritsForDom[i]
+                        if (
+                            privateMod === undefined ||
+                            privateMod[key] === undefined && privateMod._selector[selector] === undefined ||
+                            privateMod[key] !== undefined && privateMod[key][selector] === true
+                        ) {
+                            className += ' ' + selector + tail
+                        }
                     }
                 }
             }
 
             if (this._implementedNode !== undefined) {
-                className += ' ' + this._implementedNode._setDomNodeClasses(true)
+                className += ' ' + this._implementedNode._setDomNodeClasses(true, privateMod)
             }
 
             this._cssClasses = className
@@ -3196,9 +3241,6 @@ BemNode.prototype = {
         }
         if (!objectIsEmpty(node._param)) {
             attrs += ' data-param="' + encodeURIComponent(stringifyObject(node._param)) + '"'
-        }
-        if (node._mix.length !== 0) {
-            attrs += ' data-mix="' + encodeURIComponent(stringifyObject(node._mix)) + '"'
         }
         if (node._afterDomInitHandlers.length !== 0) {
             attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(node._afterDomInitHandlers)) + '"'
