@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.29.0
+ * @version 0.29.2
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -67,12 +67,12 @@ var ReservedDeclarationProperies = {
 
     // 2 means not to inherit this field
     abstract:2,
-    privateMod:2,
+    finalMod:2,
     __userMethods:2,
     __commonExpand:2,
     __commonDomInit:2,
     __flattenInherits:2,
-    __privateMod:2,
+    __finalMod:2,
 }
 
 // CSS-properties measured in px commonly
@@ -358,6 +358,9 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                 else if (name === 'data-implemented-node-name') {
                     implementedNodeName = value
                 }
+                else if (name === 'data-no-elems') {
+                    bemNode._noElems = true
+                }
                 // Else _domAttr
                 else if (name !== 'class') {
                     bemNode.domAttr(name, value)
@@ -380,6 +383,7 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
             domNode.removeAttribute('data-after-dom-init-handlers')
             domNode.removeAttribute('data-node-name')
             domNode.removeAttribute('data-implemented-node-name')
+            domNode.removeAttribute('data-no-elems')
 
             // Assign children
             for (var i = 0, ii = domNode.childNodes.length, childNode; i < ii; i++) {
@@ -396,7 +400,6 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                         bemNode.append(childNode)
                     }
 
-                    childNode._domInit()
                     childNode._renderedOnce = true
                 } else {
                     bemNode.append(childNode)
@@ -434,9 +437,19 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                 bemNode._callModHandlers(name, bemNode._mod[name])
             }
 
-            // domInit
-            if (parentBemNode === undefined) {
-                bemNode._domInit()
+            if (isInnerCall === undefined) {
+                function finalWalk (bemNode) {
+                    if (bemNode._noElems) {
+                        bemNode.noElems()
+                    }
+                    for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
+                        if (bemNode._children[i] instanceof BemNode) {
+                            finalWalk(bemNode._children[i])
+                        }
+                    }
+                    bemNode._domInit()
+                }
+                finalWalk(bemNode)
             }
 
             return bemNode
@@ -586,35 +599,41 @@ function CompileDeclarations () {
         }
     }
 
-    function inherit (declSelector, decl, inheritedDecls, privates) {
+    function inherit (declSelector, decl, inheritedDecls, final) {
         for (var i = inheritedDecls.length-1; i >= 0; i--) {
             if (typeof inheritedDecls[i] === 'string') {
                 var selector = inheritedDecls[i]
                 var inheritedDecl = Declaration[selector]
+                var prevFinal
 
                 decl.__flattenInherits.push(selector)
 
                 if (inheritedDecl !== undefined) {
                     extend(decl, inheritedDecl)
 
-                    if (inheritedDecl.privateMod === true) {
-                        privates = {selector:{}, mod:{}}
+                    if (inheritedDecl.finalMod === true) {
+                        prevFinal = final
+                        final = {selector:{}, mod:{}}
                     }
 
-                    if (privates !== undefined) {
-                        privates.selector[selector] = true
+                    if (final !== undefined) {
+                        final.selector[selector] = true
                         if (inheritedDecl.mod !== undefined) {
                             for (var modName in inheritedDecl.mod) {
-                                privates.mod[modName.toLowerCase()] = true
+                                final.mod[modName.toLowerCase()] = true
                             }
                         }
                     }
 
                     if (inheritedDecl.inherits !== undefined) {
-                        inherit(declSelector, decl, inheritedDecl.inherits, privates)
+                        inherit(declSelector, decl, inheritedDecl.inherits, final)
                     }
 
-                    setPrivates(decl, privates)
+                    setFinal(decl, final)
+
+                    if (inheritedDecl.finalMod === true) {
+                        final = prevFinal
+                    }
                 }
             } else {
                 var inheritedElems = inheritedDecls[i]
@@ -632,20 +651,20 @@ function CompileDeclarations () {
         }
     }
 
-    function setPrivates (decl, privates) {
-        if (privates !== undefined) {
-            if (decl.__privateMod === undefined) {
-                decl.__privateMod = {}
+    function setFinal (decl, final) {
+        if (final !== undefined) {
+            if (decl.__finalMod === undefined) {
+                decl.__finalMod = {}
             }
-            if (decl.__privateMod._selector === undefined) {
-                decl.__privateMod._selector = {}
+            if (decl.__finalMod._selector === undefined) {
+                decl.__finalMod._selector = {}
             }
-            for (var modName in privates.mod) {
-                if (decl.__privateMod[modName] === undefined) {
-                    decl.__privateMod[modName] = {}
-                    for (var selector in privates.selector) {
-                        decl.__privateMod[modName][selector] = true
-                        decl.__privateMod._selector[selector] = true
+            for (var modName in final.mod) {
+                if (decl.__finalMod[modName] === undefined) {
+                    decl.__finalMod[modName] = {}
+                    for (var selector in final.selector) {
+                        decl.__finalMod[modName][selector] = true
+                        decl.__finalMod._selector[selector] = true
                     }
                 }
             }
@@ -655,13 +674,13 @@ function CompileDeclarations () {
     var generatedDeclSelectors = []
     var forEachSelector = function (decl, selector) {
 
-        var privates
-        if (decl.privateMod === true) {
-            privates = {selector:{}, mod:{}}
-            privates.selector[selector] = true
+        var final
+        if (decl.finalMod === true) {
+            final = {selector:{}, mod:{}}
+            final.selector[selector] = true
             if (decl.mod !== undefined) {
                 for (var modName in decl.mod) {
-                    privates.mod[modName.toLowerCase()] = true
+                    final.mod[modName.toLowerCase()] = true
                 }
             }
         }
@@ -669,10 +688,10 @@ function CompileDeclarations () {
         // Extend decl with inherited rules
         if (decl.inherits !== undefined) {
             decl.__flattenInherits = []
-            inherit(selector, decl, decl.inherits, privates)
+            inherit(selector, decl, decl.inherits, final)
         }
 
-        setPrivates(decl, privates)
+        setFinal(decl, final)
 
         // Compile expand rules to methods array
         var expandHandlers = []
@@ -1880,7 +1899,7 @@ BemNode.prototype = {
      * @dontAffectChildren boolean If true, children won't get this parent block reference
      */
     parentBlock: function (bemNode, dontAffectChildren) {
-        if (bemNode) {
+        if (bemNode !== undefined) {
             if (this._isElem
                 && bemNode instanceof BemNode
                 && bemNode !== this._parentBlock) {
@@ -1900,10 +1919,11 @@ BemNode.prototype = {
                 if (!dontAffectChildren) {
                     this._setParentBlockForChildren(this, bemNode)
                 }
+
             }
             return this
         } else {
-            return this._implementedNode
+            return this._implementedNode !== undefined
                 ? this._implementedNode._parentBlock
                 : this._parentBlock
         }
@@ -1918,8 +1938,12 @@ BemNode.prototype = {
     _setParentBlockForChildren: function (bemNode, parentBlock) {
         for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
             var child = bemNode._children[i]
-            if (child instanceof BemNode && child._isElem) {
-                child.parentBlock(parentBlock)
+            if (child instanceof BemNode) {
+                if (child._isElem) {
+                    child.parentBlock(parentBlock)
+                } else if (child._implementedNode !== undefined && child._implementedNode._isElem) {
+                    child._implementedNode.parentBlock(parentBlock, true)
+                }
             }
         }
     },
@@ -3049,16 +3073,14 @@ BemNode.prototype = {
     /**
      * Sets DOM classes
      */
-    _setDomNodeClasses: function (returnClassNameOnly, privateMod) {
-        // if (this._selector === 'productcard__purchase') this._cssClasses = undefined
-
+    _setDomNodeClasses: function (returnClassNameOnly, finalMod) {
         if (this._cssClasses === undefined) {
             var className = this._selector
             var value
             var tail
 
-            if (privateMod === undefined && this._decl !== undefined) {
-                privateMod = this._decl.__privateMod
+            if (finalMod === undefined && this._decl !== undefined) {
+                finalMod = this._decl.__finalMod
             }
 
             if (this._flattenInheritsForDom !== undefined) {
@@ -3079,9 +3101,9 @@ BemNode.prototype = {
                     : '_' + key + '_' + value
 
                 if (
-                    privateMod === undefined ||
-                    privateMod[key] === undefined && privateMod._selector[this._selector] === undefined ||
-                    privateMod[key] !== undefined && privateMod[key][this._selector] === true
+                    finalMod === undefined ||
+                    finalMod[key] === undefined && finalMod._selector[this._selector] === undefined ||
+                    finalMod[key] !== undefined && finalMod[key][this._selector] === true
                 ) {
                     className += ' ' + this._selector + tail
                 }
@@ -3090,9 +3112,9 @@ BemNode.prototype = {
                     for (var i = 0, ii = this._flattenInheritsForDom.length, selector; i < ii; i++) {
                         selector = this._flattenInheritsForDom[i]
                         if (
-                            privateMod === undefined ||
-                            privateMod[key] === undefined && privateMod._selector[selector] === undefined ||
-                            privateMod[key] !== undefined && privateMod[key][selector] === true
+                            finalMod === undefined ||
+                            finalMod[key] === undefined && finalMod._selector[selector] === undefined ||
+                            finalMod[key] !== undefined && finalMod[key][selector] === true
                         ) {
                             className += ' ' + selector + tail
                         }
@@ -3101,7 +3123,7 @@ BemNode.prototype = {
             }
 
             if (this._implementedNode !== undefined) {
-                className += ' ' + this._implementedNode._setDomNodeClasses(true, privateMod)
+                className += ' ' + this._implementedNode._setDomNodeClasses(true, finalMod)
             }
 
             this._cssClasses = className
@@ -3247,6 +3269,9 @@ BemNode.prototype = {
         }
         if (node._implementedNode !== undefined) {
             attrs += ' data-implemented-node-name="' + node._implementedNode._nodeName + '"'
+        }
+        if (node._noElems) {
+            attrs += ' data-no-elems="1"'
         }
 
         // HTML tag
