@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.30.1
+ * @version 0.30.2
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -1078,7 +1078,8 @@ var inMultiLineComment = false
 var inEmbed = false
 
 function pushNodeOpen () {
-    if (!inEmbed) {
+
+    if (!inEmbed || openNodesNum > 0) {
         if (lastPush === 'closingNode') {
             js += ','
         }
