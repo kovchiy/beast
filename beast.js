@@ -1,6 +1,6 @@
 /**
  * Beast
- * @version 0.29.2
+ * @version 0.30.1
  * @homepage github.yandex-team.ru/kovchiy/beast
  */
 
@@ -64,6 +64,7 @@ var ReservedDeclarationProperies = {
     tag:1,
     noElems:1,
     state:1,
+    final:1,
 
     // 2 means not to inherit this field
     abstract:2,
@@ -489,6 +490,10 @@ Beast.decl = function (selector, decl) {
         selector = selector.toLowerCase()
     }
 
+    if (typeof decl.final === 'string') {
+        decl.final = [decl.final]
+    }
+
     if (typeof decl.inherits === 'string') {
         decl.inherits = [decl.inherits]
     }
@@ -559,7 +564,10 @@ Beast.node = function (name, attr) {
 function CompileDeclarations () {
     function extend (obj, extObj) {
         for (var key in extObj) {
-            if (ReservedDeclarationProperies[key] === 2) {
+            if (
+                ReservedDeclarationProperies[key] === 2 ||
+                extObj.final !== undefined && extObj.final.indexOf(key) !== -1
+            ) {
                 continue
             }
 
@@ -1272,6 +1280,8 @@ function popEmbed () {
     if (embedStack.length === 0) {
         inEmbed = false
     }
+
+    lastPush = 'embed'
 }
 
 function isLetter (char) {
@@ -1656,8 +1666,6 @@ var BemNode = function (nodeName, attr, children) {
             }
         } else if (firstLetter === firstLetter.toUpperCase()) {
             this._mod[key.toLowerCase()] = this._attr[key]
-        } else if (key === 'tag') {
-            this._tag = this._attr.tag
         } else {
             this._param[key.toLowerCase()] = this._attr[key]
         }
@@ -2119,13 +2127,13 @@ BemNode.prototype = {
      * @value1 string|boolean Modifier value 1
      * @value2 string|boolean Modifier value 2
      */
-    toggleMod: function (name, value1, value2) {
+    toggleMod: function (name, value1, value2, flag) {
         if (!this.mod(name)) {
-            this.mod(name, value1)
+            this.mod(name, value1, flag)
         } else if (this.mod(name) === value2) {
-            this.mod(name, value1)
+            this.mod(name, value1, flag)
         } else {
-            this.mod(name, value2)
+            this.mod(name, value2, flag)
         }
 
         return this
