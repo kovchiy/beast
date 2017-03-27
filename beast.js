@@ -1,7 +1,7 @@
 /**
- * Beast
- * @version 0.30.2
- * @homepage github.yandex-team.ru/kovchiy/beast
+ * @lib Beast
+ * @ver 0.35.0
+ * @url github.yandex-team.ru/kovchiy/beast
  */
 
 'use strict';
@@ -45,6 +45,7 @@ var ReDoubleQuote = /"/g             // matches "-symbols
 var ReBackslash = /\\/g              // matches \-symbols
 var ReLessThen = /</g                // matches <-symbols
 var ReMoreThen = />/g                // matches >-symbols
+var ReNL = /\n/g                     // matches \n-symbols
 var ReCamelCase = /([a-z])([A-Z])/g  // matches camelCase pairs
 var ReStylePairSplit = /:\s?/        // matches :-separation in style DOM-attribute
 
@@ -61,6 +62,7 @@ var ReservedDeclarationProperies = {
     on:1,
     onWin:1,
     onMod:1,
+    onAttach:1,
     tag:1,
     noElems:1,
     state:1,
@@ -109,7 +111,7 @@ var SingleTag = {
 
 // Text output helpers
 function escapeDoubleQuotes (string) {
-    return string.replace(ReBackslash, '\\\\').replace(ReDoubleQuote, '\\"')
+    return string.replace(ReBackslash, '\\\\').replace(ReDoubleQuote, '\\"').replace(ReNL, '\\n')
 }
 function escapeHtmlTags (string) {
     return string.replace(ReLessThen, '&lt;').replace(ReMoreThen, '&gt;')
@@ -288,23 +290,17 @@ function ProcessBmlScripts () {
  * @text string Text to parse and attach
  */
 function EvalBml (text) {
-    var parsedText = Beast.parseBML(text)
-    if (/^[\s\n]*</.test(text)) {
-        parsedText = parsedText + (
-            document.body
-                ? '.render(document.body)'
-                : '.render(document.documentElement)'
-        )
-    }
-
-    eval(parsedText)
+    var rootNode = eval(Beast.parseBML(text))
+    rootNode.render(
+        /^[\s\n]*</.test(text) ? document.body : document.documentElement
+    )
 }
 
 /**
  * Initialize DOM: assign DOM-nodes to BemNodes
  * @domNode DOMElement Node to start with
  */
-Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
+Beast.domInit = function (domNode, isInnerCall, parentBemNode, parentBlock) {
     // No more Beast.decl() after the first Beast.domInit() call
     if (!DeclarationFinished) {
         DeclarationFinished = true
@@ -320,7 +316,7 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
         if (nodeName !== null) {
 
             // BemNode
-            var bemNode = isInnerCall ? Beast.node(nodeName, {__context: parentBemNode}) : Beast.node(nodeName)
+            var bemNode = isInnerCall ? Beast.node(nodeName, {__context: parentBlock}) : Beast.node(nodeName)
             var stringToEval = ''
             var implementedNodeName = ''
 
@@ -353,9 +349,6 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                 else if (name === 'data-param') {
                     stringToEval += ';bemNode._param = ' + decodeURIComponent(value)
                 }
-                else if (name === 'data-after-dom-init-handlers') {
-                    stringToEval += ';bemNode._afterDomInitHandlers = ' + decodeURIComponent(value)
-                }
                 else if (name === 'data-implemented-node-name') {
                     implementedNodeName = value
                 }
@@ -372,45 +365,44 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
                 eval(stringToEval)
             }
 
-            if (implementedNodeName !== '') {
-                bemNode._implementedNode = Beast.node(implementedNodeName, {__context:parentBemNode})
-            }
-
-            domNode.removeAttribute('data-event-handlers')
-            domNode.removeAttribute('data-window-event-handlers')
-            domNode.removeAttribute('data-mod-handlers')
-            domNode.removeAttribute('data-mod')
-            domNode.removeAttribute('data-param')
-            domNode.removeAttribute('data-after-dom-init-handlers')
-            domNode.removeAttribute('data-node-name')
-            domNode.removeAttribute('data-implemented-node-name')
-            domNode.removeAttribute('data-no-elems')
-
-            // Assign children
-            for (var i = 0, ii = domNode.childNodes.length, childNode; i < ii; i++) {
-                childNode = Beast.domInit(domNode.childNodes[i], true, bemNode)
-
-                if (childNode instanceof BemNode) {
-                    if (childNode._implementedNode) {
-                        var childDomNode = childNode._domNode
-                        childNode._domNode = undefined
-                        bemNode.append(childNode._implementedNode)
-                        childNode._implementedNode.implementWith(childNode, true)
-                        childNode._domNode = childDomNode
-                    } else {
-                        bemNode.append(childNode)
-                    }
-
-                    childNode._renderedOnce = true
-                } else {
-                    bemNode.append(childNode)
+            for (var key in bemNode._param) {
+                if (bemNode._param[key].__isStringifiedBemNode === true) {
+                    bemNode._param[key] = eval(bemNode._param[key].string)
                 }
             }
 
-            // Assign flags
-            if (isInnerCall === undefined) {
-                bemNode._renderedOnce = true
+            if (isInnerCall !== undefined) {
+                var parentDomNode = parentBemNode._domNode
+                parentBemNode._domNode = undefined
+
+                if (implementedNodeName !== '') {
+                    Beast.node(implementedNodeName, {__context:parentBlock})
+                        .appendTo(parentBemNode)
+                        .implementWith(bemNode, true)
+                } else {
+                    parentBemNode.append(bemNode)
+                    if (parentBemNode._noElems === true) {
+                        bemNode.parentBlock(parentBlock)
+                    }
+                }
+
+                parentBemNode._domNode = parentDomNode
             }
+
+            // Assign children
+            for (var i = 0, ii = domNode.childNodes.length, childNode; i < ii; i++) {
+                Beast.domInit(
+                    domNode.childNodes[i],
+                    true,
+                    bemNode,
+                    bemNode._noElems === true
+                        ? bemNode._parentBlock._parentNode._parentBlock
+                        : bemNode._parentBlock
+                )
+            }
+
+            // Assign flags
+            bemNode._renderedOnce = true
             bemNode._isExpanded = true
 
             // Crosslink
@@ -440,24 +432,33 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode) {
 
             if (isInnerCall === undefined) {
                 function finalWalk (bemNode) {
-                    if (bemNode._noElems) {
-                        bemNode.noElems()
-                    }
                     for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
                         if (bemNode._children[i] instanceof BemNode) {
                             finalWalk(bemNode._children[i])
                         }
                     }
                     bemNode._domInit()
+                    bemNode._onAttach(true)
                 }
                 finalWalk(bemNode)
             }
+
+            domNode.removeAttribute('data-event-handlers')
+            domNode.removeAttribute('data-window-event-handlers')
+            domNode.removeAttribute('data-mod-handlers')
+            domNode.removeAttribute('data-mod')
+            domNode.removeAttribute('data-param')
+            domNode.removeAttribute('data-after-dom-init-handlers')
+            domNode.removeAttribute('data-node-name')
+            domNode.removeAttribute('data-implemented-node-name')
+            domNode.removeAttribute('data-no-elems')
 
             return bemNode
         }
     }
     // TEXT_NODE
     else if (domNode.nodeType === 3) {
+        parentBemNode.append(domNode.nodeValue)
         return domNode.nodeValue
     }
 
@@ -614,7 +615,7 @@ function CompileDeclarations () {
                 var inheritedDecl = Declaration[selector]
                 var prevFinal
 
-                decl.__flattenInherits.push(selector)
+                decl.__flattenInherits.push(selector.toLowerCase())
 
                 if (inheritedDecl !== undefined) {
                     extend(decl, inheritedDecl)
@@ -740,14 +741,26 @@ function CompileDeclarations () {
         if (decl.on !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.on) {
-                    this.on(events, decl.on[events], false, decl)
+                    if (events === 'preventable') {
+                        for (var preventableEvents in decl.on.preventable) {
+                            this.on(preventableEvents, decl.on.preventable[preventableEvents], false, decl, true)
+                        }
+                    } else {
+                        this.on(events, decl.on[events], false, decl)
+                    }
                 }
             })
         }
         if (decl.onWin !== undefined) {
             expandHandlers.unshift(function () {
                 for (var events in decl.onWin) {
-                    this.onWin(events, decl.onWin[events], false, decl)
+                    if (events === 'preventable') {
+                        for (var preventableEvents in decl.onWin.preventable) {
+                            this.onWin(preventableEvents, decl.onWin.preventable[preventableEvents], false, decl, true)
+                        }
+                    } else {
+                        this.onWin(events, decl.onWin[events], false, decl)
+                    }
                 }
             })
         }
@@ -1300,6 +1313,13 @@ function isBreak (char) {
 })();
 
 /**
+ * Parses and evaluates BML-string
+ */
+Beast.evalBML = function (string) {
+    return eval(Beast.parseBML(string))
+}
+
+/**
  * Finds difference between @newNode and @oldNode and patches the DOM
  * @parentDomNode DomElement Node to fix children
  * @newNode       BemNode    Node after state change
@@ -1625,7 +1645,6 @@ var BemNode = function (nodeName, attr, children) {
     this._domNodeEventHandlers = undefined  // DOM event handlers
     this._windowEventHandlers = undefined   // window event handlers
     this._modHandlers = undefined           // handlers on modifiers change
-    this._afterDomInitHandlers = []         // Handlers called after DOM-node inited
     this._domInited = false                 // Flag if DOM-node inited
     this._parentBlock = undefined           // parent block bemNode reference
     this._parentNode = undefined            // parent bemNode reference
@@ -1804,7 +1823,7 @@ BemNode.prototype = {
         selector = selector.toLowerCase()
         var isKindOfSelector = this._selector === selector
 
-        if (!isKindOfSelector && this._flattenInherits) {
+        if (!isKindOfSelector && this._flattenInherits !== undefined) {
             isKindOfSelector = this._flattenInherits.indexOf(selector) > -1
         }
 
@@ -2122,6 +2141,21 @@ BemNode.prototype = {
     },
 
     /**
+     * Adds additional CSS-classes
+     */
+    mix: function () {
+        for (var i = 0, ii = arguments.length; i < ii; i++) {
+            this._mix.push(arguments[i])
+        }
+
+        if (this._domNode !== undefined) {
+            this._setDomNodeClasses()
+        }
+
+        return this
+    },
+
+    /**
      * Toggles mods.
      *
      * @name   string         Modifier name
@@ -2172,12 +2206,16 @@ BemNode.prototype = {
      * @events  string   Space splitted event list: 'click' or 'click keypress'
      * @handler function
      */
-    on: function (event, handler, isSingleEvent, fromDecl, dontCache) {
+    on: function (event, handler, isSingleEvent, fromDecl, dontCache, preventable) {
         if (typeof handler !== 'function') {
             return this
         }
 
-        if (!handler.isBoundToNode) {
+        if (preventable === undefined) {
+            preventable = false
+        }
+
+        if (handler.isBoundToNode === undefined) {
             var handlerOrigin = handler
             var handlerWrap = function (e) {
                 handlerOrigin.call(this, e, e.detail)
@@ -2199,7 +2237,7 @@ BemNode.prototype = {
             }
         } else {
             if (this._domNode !== undefined) {
-                this._domNode.addEventListener(event, handler, {passive: true})
+                this._domNode.addEventListener(event, handler, {passive: !preventable})
             }
 
             if (dontCache === undefined) {
@@ -2233,12 +2271,16 @@ BemNode.prototype = {
      * @modValue string|boolean
      * @handler  function
      */
-    onWin: function (event, handler, isSingleEvent, fromDecl, dontCache) {
+    onWin: function (event, handler, isSingleEvent, fromDecl, dontCache, preventable) {
         if (typeof handler !== 'function') {
             return this
         }
 
-        if (!handler.isBoundToNode) {
+        if (preventable === undefined) {
+            preventable = false
+        }
+
+        if (handler.isBoundToNode === undefined) {
             var handlerOrigin = handler
             handler = function (e) {
                 handlerOrigin.call(this, e, e.detail)
@@ -2258,7 +2300,7 @@ BemNode.prototype = {
             }
         } else {
             if (this._domNode !== undefined) {
-                window.addEventListener(event, handler, {passive: true})
+                window.addEventListener(event, handler, {passive: !preventable})
             }
 
             if (!dontCache) {
@@ -2411,7 +2453,7 @@ BemNode.prototype = {
 
         if (this._isElem) {
             parentBlock = this._parentBlock
-        } else if (this._isBlock && this._implementedNode) {
+        } else if (this._isBlock && this._implementedNode !== undefined) {
             parentBlock = this._implementedNode._parentBlock
         }
 
@@ -2433,11 +2475,11 @@ BemNode.prototype = {
 
         if (this._isElem) {
             parentBlock = this._parentBlock
-        } else if (this._isBlock && this._implementedNode) {
+        } else if (this._isBlock && this._implementedNode !== undefined) {
             parentBlock = this._implementedNode._parentBlock
         }
 
-        if (parentBlock) {
+        if (parentBlock !== undefined) {
             parentBlock._elems.push(this)
         }
     },
@@ -2604,7 +2646,7 @@ BemNode.prototype = {
         var parentNode = this._parentNode
         var siblingsAfter
 
-        if (parentNode) {
+        if (parentNode !== undefined) {
             if (parentNode === bemNode) {
                 parentNode = this._prevParentNode
             } else {
@@ -2616,7 +2658,7 @@ BemNode.prototype = {
             parentNode._isReplaceContext = false
         }
 
-        if (siblingsAfter) {
+        if (siblingsAfter !== undefined) {
             parentNode._children = parentNode._children.concat(siblingsAfter)
         }
 
@@ -2629,7 +2671,7 @@ BemNode.prototype = {
 
             if (this._isRenderStateContext) {
                 bemNode._expandForRenderState(true)
-            } else if (!ignoreDom) {
+            } else if (ignoreDom === undefined) {
                 bemNode.render()
             }
         }
@@ -2727,7 +2769,7 @@ BemNode.prototype = {
             for (var j = 0, jj = arguments.length, elemName; j < jj; j++) {
                 elemName = arguments[j]
                 if (elem._nodeName === elemName ||
-                    elem._implementedNode && elem._implementedNode._nodeName === elemName
+                    elem._implementedNode !== undefined && elem._implementedNode._nodeName === elemName
                 ) {
                     elems.push(elem)
                 }
@@ -2738,23 +2780,21 @@ BemNode.prototype = {
     },
 
     /**
-     * Finds bemNodes and attributes by paths:
-     * - nodeName1 (children)
-     * - nodeName1/ (all children of children)
-     * - nodeName1/nodeName2 (children of children)
-     * - ../nodeName1 (children of parent)
-     *
-     * @path   string Multiple argument: path to node or attribute
-     * @return array  bemNodes collection
+     * Finds bemNodes by names:
+     * @nodeName string Multiple argument: path to node or attribute
+     * @return   array  bemNodes collection
      */
     get: function () {
-        if (arguments.length === 0) return this._children
+        if (arguments.length === 0) {
+            return this._children
+        }
 
         var collections = []
-
         for (var i = 0, ii = arguments.length, collection; i < ii; i++) {
             if (arguments[i] === '/') {
-                collection = this._filterChildNodes('')
+                collection = this._filterChildNodes()
+            } else if (arguments[i].indexOf('/') === -1) {
+                collection = this._filterChildNodes(arguments[i])
             } else {
                 var pathItems = arguments[i].split('/')
 
@@ -2779,13 +2819,8 @@ BemNode.prototype = {
                 }
             }
 
-            if (ii === 1) {
-                collections = collection
-            } else {
-                collections = collections.concat(collection)
-            }
+            collections = ii === 1 ? collection : collections.concat(collection)
         }
-
         return collections
     },
 
@@ -2796,18 +2831,20 @@ BemNode.prototype = {
      * @return array  Filtered children
      */
     _filterChildNodes: function (name) {
-        if (name === '..') {
-            return [this._parentNode]
-        }
-
-        var collection = []
+        var collection = [], child, childName, implementedChildName
         for (var i = 0, ii = this._children.length; i < ii; i++) {
-            var child = this._children[i]
+            child = this._children[i]
+            childName = child._nodeName
+            implementedChildName = child._implementedNode !== undefined ? child._implementedNode._nodeName : ''
+
             if (
                 child instanceof BemNode && (
-                    name === ''
-                    || name === child._nodeName
-                    || child._implementedNode && name === child._implementedNode._nodeName
+                    name === undefined
+                    || name === childName
+                    || name === implementedChildName
+                    || Array.isArray(name) && (
+                        name.indexOf(childName) !== -1 || name.indexOf(implementedChildName) !== -1
+                    )
                 )
             ) {
                 collection.push(child)
@@ -2824,21 +2861,6 @@ BemNode.prototype = {
      */
     has: function () {
         return this.get.apply(this, arguments).length > 0
-    },
-
-    /**
-     * Set handler to call afted DOM-node inited
-     *
-     * @callback function Handler to call
-     */
-    afterDomInit: function (handler) {
-        if (!this._domInited) {
-            this._afterDomInitHandlers.push(handler)
-        } else {
-            handler.call(this)
-        }
-
-        return this
     },
 
     /**
@@ -2880,7 +2902,7 @@ BemNode.prototype = {
     render: function (parentDOMNode) {
 
         // Call expand handler
-        if (!this._isExpanded && this._decl && this._decl.__commonExpand) {
+        if (!this._isExpanded && this._decl !== undefined && this._decl.__commonExpand !== undefined) {
             this._isExpandContext = true
             this._decl.__commonExpand.call(this)
             this._completeExpand()
@@ -2893,7 +2915,7 @@ BemNode.prototype = {
         }
 
         // Create DOM element if there isn't
-        if (!this._domNode) {
+        if (this._domNode === undefined) {
             this._domNode = document.createElement(this._tag)
             this._domNode.bemNode = this
 
@@ -2906,7 +2928,7 @@ BemNode.prototype = {
         }
 
         // Append to DOM tree
-        if (parentDOMNode) {
+        if (parentDOMNode !== undefined) {
             parentDOMNode.appendChild(this._domNode)
         } else {
             this._parentNode._domNode.insertBefore(
@@ -2916,6 +2938,8 @@ BemNode.prototype = {
                 ] || null
             )
         }
+
+        var renderedOnce = this._renderedOnce
 
         // When first time render
         if (!this._renderedOnce) {
@@ -2957,6 +2981,8 @@ BemNode.prototype = {
             // Compontent rendered at least once
             this._renderedOnce = true
         }
+
+        this._onAttach(!renderedOnce)
 
         return this
     },
@@ -3037,11 +3063,14 @@ BemNode.prototype = {
 
         this._isDomInitContext = false
         this._domInited = true
+    },
 
-        if (this._afterDomInitHandlers.length !== 0) {
-            for (var i = 0, ii = this._afterDomInitHandlers.length; i < ii; i++) {
-                this._afterDomInitHandlers[i].call(this)
-            }
+    /**
+     * Instructions for the DOM-element after render in tree
+     */
+    _onAttach: function (firstTime) {
+        if (this._decl !== undefined && this._decl.onAttach !== undefined) {
+            this._decl.onAttach.call(this, firstTime)
         }
     },
 
@@ -3095,6 +3124,12 @@ BemNode.prototype = {
             if (this._flattenInheritsForDom !== undefined) {
                 for (var i = 0, ii = this._flattenInheritsForDom.length; i < ii; i++) {
                     className += ' ' + this._flattenInheritsForDom[i]
+                }
+            }
+
+            if (this._mix.length !== 0) {
+                for (var i = 0, ii = this._mix.length; i < ii; i++) {
+                    className += ' ' + this._mix[i]
                 }
             }
 
@@ -3223,6 +3258,15 @@ BemNode.prototype = {
             node._decl.__commonExpand.call(node)
             node._completeExpand()
             node._isExpandContext = false
+
+            for (var key in this._param) {
+                if (this._param[key] instanceof BemNode) {
+                    this._param[key] = {
+                        string: this._param[key].toStringOfFunctions(),
+                        __isStringifiedBemNode: true
+                    }
+                }
+            }
         }
 
         if (node._implementedWith !== undefined) {
@@ -3272,9 +3316,6 @@ BemNode.prototype = {
         }
         if (!objectIsEmpty(node._param)) {
             attrs += ' data-param="' + encodeURIComponent(stringifyObject(node._param)) + '"'
-        }
-        if (node._afterDomInitHandlers.length !== 0) {
-            attrs += ' data-after-dom-init-handlers="' + encodeURIComponent(stringifyObject(node._afterDomInitHandlers)) + '"'
         }
         if (node._implementedNode !== undefined) {
             attrs += ' data-implemented-node-name="' + node._implementedNode._nodeName + '"'
