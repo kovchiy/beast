@@ -1,6 +1,6 @@
 /**
  * @lib Beast
- * @ver 0.35.0
+ * @ver 0.37.0
  * @url github.yandex-team.ru/kovchiy/beast
  */
 
@@ -63,6 +63,7 @@ var ReservedDeclarationProperies = {
     onWin:1,
     onMod:1,
     onAttach:1,
+    onRemove:1,
     tag:1,
     noElems:1,
     state:1,
@@ -343,6 +344,9 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode, parentBlock) {
                 else if (name === 'data-mod-handlers') {
                     stringToEval += ';bemNode._modHandlers = ' + decodeURIComponent(value)
                 }
+                else if (name === 'data-dom-init-handlers') {
+                    stringToEval += ';bemNode._domInitHandlers = ' + decodeURIComponent(value)
+                }
                 else if (name === 'data-mod') {
                     stringToEval += ';bemNode._mod = ' + decodeURIComponent(value)
                 }
@@ -425,17 +429,15 @@ Beast.domInit = function (domNode, isInnerCall, parentBemNode, parentBlock) {
                 }
             }
 
-            // Call mod handlers
-            for (var name in bemNode._mod) {
-                bemNode._callModHandlers(name, bemNode._mod[name])
-            }
-
             if (isInnerCall === undefined) {
                 function finalWalk (bemNode) {
                     for (var i = 0, ii = bemNode._children.length; i < ii; i++) {
                         if (bemNode._children[i] instanceof BemNode) {
                             finalWalk(bemNode._children[i])
                         }
+                    }
+                    for (var name in bemNode._mod) {
+                        bemNode._callModHandlers(name, bemNode._mod[name])
                     }
                     bemNode._domInit()
                     bemNode._onAttach(true)
@@ -1645,6 +1647,7 @@ var BemNode = function (nodeName, attr, children) {
     this._domNodeEventHandlers = undefined  // DOM event handlers
     this._windowEventHandlers = undefined   // window event handlers
     this._modHandlers = undefined           // handlers on modifiers change
+    this._domInitHandlers = []              // Handlers called after DOM-node inited
     this._domInited = false                 // Flag if DOM-node inited
     this._parentBlock = undefined           // parent block bemNode reference
     this._parentNode = undefined            // parent bemNode reference
@@ -2488,6 +2491,7 @@ BemNode.prototype = {
      * Removes itself
      */
     remove: function () {
+        this._onRemove()
 
         // Proper remove children
         for (var i = 0, ii = this._children.length; i < ii; i++) {
@@ -2509,6 +2513,15 @@ BemNode.prototype = {
         }
 
         this.detach()
+    },
+
+    /**
+     * Instructions before removing node
+     */
+    _onRemove: function () {
+        if (this._decl !== undefined && this._decl.onRemove !== undefined) {
+            this._decl.onRemove.call(this)
+        }
     },
 
     /**
@@ -2699,9 +2712,7 @@ BemNode.prototype = {
         this._cssClasses = undefined
 
         if (this._domNodeEventHandlers !== undefined) {
-            bemNode._domNodeEventHandlers = bemNode._domNodeEventHandlers === undefined
-                ? this._domNodeEventHandlers
-                : console.error('TODO: Extend handler objects')
+            bemNode._domNodeEventHandlers = this._domNodeEventHandlers
 
             for (var key in bemNode._domNodeEventHandlers) {
                 for (var i = 0, ii = bemNode._domNodeEventHandlers[key].length, beastDeclPath; i < ii; i++) {
@@ -2713,26 +2724,32 @@ BemNode.prototype = {
         }
 
         if (this._windowEventHandlers !== undefined) {
-            bemNode._windowEventHandlers = bemNode._windowEventHandlers === undefined
-                ? this._windowEventHandlers
-                : console.error('TODO: Extend handler objects')
+            bemNode._windowEventHandlers = this._windowEventHandlers
         }
 
         if (this._modHandlers !== undefined) {
-            bemNode._modHandlers = bemNode._modHandlers === undefined
-                ? this._modHandlers
-                : console.error('TODO: Extend handler objects')
+            bemNode._modHandlers = this._modHandlers
         }
 
         bemNode._implementedNode = this
         this._implementedWith = bemNode
+
         bemNode._extendProperty('_mod', this._mod, true)
         bemNode._extendProperty('_param', this._param, true)
         this._extendProperty('_mod', bemNode._mod)
+
         bemNode._defineUserMethods(this._selector)
+
+        if (this._parentBlock !== undefined && this._parentBlock._elems !== undefined) {
+            for (var i = 0, ii = this._parentBlock._elems.length; i < ii; i++) {
+                if (this._parentBlock._elems[i] === this) {
+                    this._parentBlock._elems[i] = bemNode
+                    break
+                }
+            }
+        }
+
         this.replaceWith(bemNode, ignoreDom)
-        this._removeFromParentBlockElems()
-        bemNode._addToParentBlockElems()
     },
 
     /**
@@ -2861,6 +2878,21 @@ BemNode.prototype = {
      */
     has: function () {
         return this.get.apply(this, arguments).length > 0
+    },
+
+    /**
+     * Set handler to call afted DOM-node inited
+     *
+     * @callback function Handler to call
+     */
+    onDomInit: function (handler) {
+        if (!this._domInited) {
+            this._domInitHandlers.push(handler)
+        } else {
+            handler.call(this)
+        }
+
+        return this
     },
 
     /**
@@ -3063,6 +3095,12 @@ BemNode.prototype = {
 
         this._isDomInitContext = false
         this._domInited = true
+
+        if (this._domInitHandlers.length !== 0) {
+            for (var i = 0, ii = this._domInitHandlers.length; i < ii; i++) {
+                this._domInitHandlers[i].call(this)
+            }
+        }
     },
 
     /**
@@ -3316,6 +3354,9 @@ BemNode.prototype = {
         }
         if (!objectIsEmpty(node._param)) {
             attrs += ' data-param="' + encodeURIComponent(stringifyObject(node._param)) + '"'
+        }
+        if (node._domInitHandlers.length !== 0) {
+            attrs += ' data-dom-init-handlers="' + encodeURIComponent(stringifyObject(node._domInitHandlers)) + '"'
         }
         if (node._implementedNode !== undefined) {
             attrs += ' data-implemented-node-name="' + node._implementedNode._nodeName + '"'
