@@ -72,6 +72,7 @@
 * [Дальнейшая работа](#more)
 
 <a name="beast"/>
+
 # Beast
 
 Инструмент создания интерфейса веб-приложений. Покрывает собой весь цикл разработки: от шаблонизации до взаимодействия компонент. Идейный наследник [БЭМ-методологии](//github.com/bem/bem-method) и инструментов [i-bem.js](https://ru.bem.info/technology/i-bem/v2/i-bem-js/), [bh](https://github.com/bem/bh), [React](http://facebook.github.io/react/); результат бесед с [Сергеем Бережным](https://events.yandex.ru/lib/people/34/), [Маратом Дулиным](https://events.yandex.ru/lib/people/143932/), [Антоном Шеиным](http://antonshein.ru/noise/) и [Артемом Шитовым](http://www.artlebedev.ru/search/?text=%D0%B0%D1%80%D1%82%D0%B5%D0%BC%20%D1%88%D0%B8%D1%82%D0%BE%D0%B2).
