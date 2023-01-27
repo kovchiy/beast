@@ -2,7 +2,7 @@
 
 # Beast Practice
 
-Это не [доментация к инстурменту](/README.md), а набор практических советов и согласующийся с ним codestyle.
+Это не [документация к инстурменту](/README.md), а набор практических советов и согласующийся с ним codestyle.
 
 - [Разработка компонента](articles/01-component-development.md) ✓
 - [Наследование компонент](articles/02-component-inheritance.md) ✓
